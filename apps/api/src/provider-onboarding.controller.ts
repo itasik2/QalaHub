@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   Post,
   Put,
@@ -14,6 +15,7 @@ import {
   prisma,
 } from '@qalahub/db';
 import { syncProviderReadiness } from './provider-readiness.js';
+import { requireProviderSession } from './provider-session.js';
 import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
 class StartProviderOnboardingDto {
@@ -57,65 +59,51 @@ export class ProviderOnboardingController {
       where: { phone },
       include: { provider: true },
     });
-    const previousCityId = existingUser?.provider?.cityId;
-
-    let providerId: string;
 
     if (existingUser?.provider) {
-      await prisma.$transaction([
-        prisma.user.update({
-          where: { id: existingUser.id },
-          data: {
-            name,
-            ...(existingUser.role === UserRole.CUSTOMER ? { role: UserRole.PROVIDER } : {}),
-          },
-        }),
-        prisma.provider.update({
-          where: { id: existingUser.provider.id },
-          data: {
-            cityId: city.id,
-            ...(existingUser.provider.status === ProviderStatus.DORMANT
-              ? { status: ProviderStatus.ONBOARDING }
-              : {}),
-          },
-        }),
-      ]);
-      providerId = existingUser.provider.id;
-    } else {
-      const result = await prisma.$transaction(async (tx) => {
-        const user = existingUser
-          ? await tx.user.update({
-              where: { id: existingUser.id },
-              data: {
-                name,
-                ...(existingUser.role === UserRole.CUSTOMER ? { role: UserRole.PROVIDER } : {}),
-              },
-            })
-          : await tx.user.create({
-              data: { phone, name, role: UserRole.PROVIDER },
-            });
-
-        return tx.provider.create({
-          data: {
-            userId: user.id,
-            cityId: city.id,
-            status: ProviderStatus.ONBOARDING,
-            availability: AvailabilityStatus.OFFLINE,
-          },
-        });
-      });
-      providerId = result.id;
+      const state = await syncProviderReadiness(existingUser.provider.id);
+      if (!state) throw new BadRequestException('provider not found');
+      return {
+        ok: true,
+        providerId: existingUser.provider.id,
+        existingProvider: true,
+        authenticationRequired: true,
+        readiness: state.readiness,
+      };
     }
 
-    const state = await syncProviderReadiness(providerId);
-    if (!state) throw new BadRequestException('provider could not be created');
+    const result = await prisma.$transaction(async (tx) => {
+      const user = existingUser
+        ? await tx.user.update({
+            where: { id: existingUser.id },
+            data: {
+              name,
+              ...(existingUser.role === UserRole.CUSTOMER ? { role: UserRole.PROVIDER } : {}),
+            },
+          })
+        : await tx.user.create({
+            data: { phone, name, role: UserRole.PROVIDER },
+          });
 
-    const affectedCityIds = new Set([city.id, ...(previousCityId ? [previousCityId] : [])]);
-    await Promise.all([...affectedCityIds].map((cityId) => reconcileSupplyNeedsByCityId(cityId)));
+      return tx.provider.create({
+        data: {
+          userId: user.id,
+          cityId: city.id,
+          status: ProviderStatus.ONBOARDING,
+          availability: AvailabilityStatus.OFFLINE,
+        },
+      });
+    });
+
+    const state = await syncProviderReadiness(result.id);
+    if (!state) throw new BadRequestException('provider could not be created');
+    await reconcileSupplyNeedsByCityId(city.id);
 
     return {
       ok: true,
-      providerId,
+      providerId: result.id,
+      existingProvider: false,
+      authenticationRequired: true,
       readiness: state.readiness,
     };
   }
@@ -123,8 +111,11 @@ export class ProviderOnboardingController {
   @Put(':providerId/onboarding/profile')
   async updateProfile(
     @Param('providerId') providerId: string,
+    @Headers('authorization') authorization: string | undefined,
     @Body() body: UpdateProviderProfileDto,
   ) {
+    requireProviderSession(authorization, providerId);
+
     const provider = await prisma.provider.findUnique({ where: { id: providerId } });
     if (!provider) throw new BadRequestException('provider not found');
     if (provider.status === ProviderStatus.BLOCKED) {
@@ -250,7 +241,11 @@ export class ProviderOnboardingController {
   }
 
   @Get(':providerId/readiness')
-  async readiness(@Param('providerId') providerId: string) {
+  async readiness(
+    @Param('providerId') providerId: string,
+    @Headers('authorization') authorization?: string,
+  ) {
+    requireProviderSession(authorization, providerId);
     const state = await syncProviderReadiness(providerId);
     if (!state) throw new BadRequestException('provider not found');
     return {
