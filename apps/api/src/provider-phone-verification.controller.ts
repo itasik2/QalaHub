@@ -10,6 +10,7 @@ import {
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { ProviderStatus, prisma } from '@qalahub/db';
 import { syncProviderReadiness } from './provider-readiness.js';
+import { createProviderSession } from './provider-session.js';
 import { sendSms } from './sms.service.js';
 import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
@@ -52,9 +53,6 @@ export class ProviderPhoneVerificationController {
       throw new BadRequestException('blocked provider cannot verify phone');
     }
     if (!provider.user.phone) throw new BadRequestException('provider phone is missing');
-    if (provider.user.phoneVerifiedAt) {
-      return { ok: true, alreadyVerified: true, phoneVerified: true };
-    }
 
     const now = new Date();
     const existing = await prisma.phoneVerificationChallenge.findUnique({
@@ -112,7 +110,8 @@ export class ProviderPhoneVerificationController {
 
     return {
       ok: true,
-      phoneVerified: false,
+      phoneVerified: Boolean(provider.user.phoneVerifiedAt),
+      loginVerification: Boolean(provider.user.phoneVerifiedAt),
       expiresInSeconds: Math.round(ttlMs / 1000),
       retryAfterSeconds: Math.round(resendMs / 1000),
       delivery,
@@ -135,16 +134,10 @@ export class ProviderPhoneVerificationController {
       include: { user: true },
     });
     if (!provider) throw new BadRequestException('provider not found');
-    if (!provider.user.phone) throw new BadRequestException('provider phone is missing');
-    if (provider.user.phoneVerifiedAt) {
-      const state = await syncProviderReadiness(providerId);
-      return {
-        ok: true,
-        phoneVerified: true,
-        alreadyVerified: true,
-        readiness: state?.readiness ?? null,
-      };
+    if (provider.status === ProviderStatus.BLOCKED) {
+      throw new BadRequestException('blocked provider cannot verify phone');
     }
+    if (!provider.user.phone) throw new BadRequestException('provider phone is missing');
 
     const challenge = await prisma.phoneVerificationChallenge.findUnique({
       where: { phone: provider.user.phone },
@@ -172,18 +165,21 @@ export class ProviderPhoneVerificationController {
     await prisma.$transaction([
       prisma.user.update({
         where: { id: provider.userId },
-        data: { phoneVerifiedAt: now },
+        data: { phoneVerifiedAt: provider.user.phoneVerifiedAt ?? now },
       }),
       prisma.phoneVerificationChallenge.delete({ where: { id: challenge.id } }),
     ]);
 
     const state = await syncProviderReadiness(providerId);
     await reconcileSupplyNeedsByCityId(provider.cityId);
+    const session = createProviderSession(providerId);
 
     return {
       ok: true,
       phoneVerified: true,
       readiness: state?.readiness ?? null,
+      sessionToken: session.token,
+      sessionExpiresInSeconds: session.expiresInSeconds,
     };
   }
 }
