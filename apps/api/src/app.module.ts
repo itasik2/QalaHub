@@ -7,6 +7,7 @@ import { OrderLifecycleController } from './order-lifecycle.controller.js';
 import { ProviderActionsController } from './provider-actions.controller.js';
 import { ProviderAvailabilityController } from './provider-availability.controller.js';
 import { ProviderOnboardingController } from './provider-onboarding.controller.js';
+import { RequestCancellationController } from './request-cancellation.controller.js';
 import { RequestsController } from './requests.controller.js';
 import { SupplyHealthController } from './supply-health.controller.js';
 
@@ -27,6 +28,7 @@ class HealthController {
     HealthController,
     MatchingController,
     RequestsController,
+    RequestCancellationController,
     ProviderActionsController,
     ProviderAvailabilityController,
     ProviderOnboardingController,
