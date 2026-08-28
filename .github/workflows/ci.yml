@@ -8,9 +8,33 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: qalahub
+          POSTGRES_PASSWORD: qalahub
+          POSTGRES_DB: qalahub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U qalahub -d qalahub"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://qalahub:qalahub@localhost:5432/qalahub?schema=public
       REDIS_URL: redis://localhost:6379
+      API_PORT: 4000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,7 +44,31 @@ jobs:
         run: npm install
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
-      - name: Generate initial migration preview
-        run: npm run prisma:init-sql -w @qalahub/db
       - name: Build workspaces
         run: npm run build
+      - name: Apply migrations
+        run: npm run db:deploy
+      - name: Seed Pavlodar pilot data
+        run: npm run db:seed
+      - name: Smoke test autonomous matching
+        shell: bash
+        run: |
+          set -u
+          MATCHING_WAVE_TIMEOUT_SECONDS=5 MATCHING_MAX_OFFERS=1 npm run start -w @qalahub/worker >/tmp/qalahub-worker.log 2>&1 &
+          WORKER_PID=$!
+          npm run start -w @qalahub/api >/tmp/qalahub-api.log 2>&1 &
+          API_PID=$!
+
+          node scripts/smoke-matching.mjs
+          STATUS=$?
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "==== API LOG ===="
+            cat /tmp/qalahub-api.log || true
+            echo "==== WORKER LOG ===="
+            cat /tmp/qalahub-worker.log || true
+          fi
+
+          kill "$API_PID" "$WORKER_PID" 2>/dev/null || true
+          wait "$API_PID" "$WORKER_PID" 2>/dev/null || true
+          exit "$STATUS"
