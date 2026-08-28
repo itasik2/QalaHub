@@ -219,6 +219,7 @@ model Request {
   latitude                 Float?
   longitude                Float?
   maxDistanceKm            Float          @default(10)
+  accessTokenHash          String?
   matchingRound            Int            @default(0)
   matchingWave             Int            @default(0)
   searchExpansionAttempted Boolean        @default(false)
