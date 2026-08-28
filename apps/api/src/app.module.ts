@@ -3,6 +3,7 @@ import { InternalProviderVerificationController } from './internal-provider-veri
 import { MatchingController } from './matching.controller.js';
 import { MatchingQueueService } from './matching-queue.service.js';
 import { OfferSelectionController } from './offer-selection.controller.js';
+import { OrderLifecycleController } from './order-lifecycle.controller.js';
 import { ProviderActionsController } from './provider-actions.controller.js';
 import { ProviderAvailabilityController } from './provider-availability.controller.js';
 import { ProviderOnboardingController } from './provider-onboarding.controller.js';
@@ -31,6 +32,7 @@ class HealthController {
     ProviderOnboardingController,
     InternalProviderVerificationController,
     OfferSelectionController,
+    OrderLifecycleController,
     SupplyHealthController,
   ],
   providers: [MatchingQueueService],
