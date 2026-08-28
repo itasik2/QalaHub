@@ -6,7 +6,7 @@ import {
   RequestStatus,
   prisma,
 } from '@qalahub/db';
-import { MatchingQueueService } from './matching-queue.service';
+import { MatchingQueueService } from './matching-queue.service.js';
 
 class RespondDto {
   response!: 'ACCEPTED' | 'DECLINED';
