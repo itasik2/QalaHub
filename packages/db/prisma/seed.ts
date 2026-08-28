@@ -1,4 +1,4 @@
-import { prisma, UserRole, ProviderStatus, AvailabilityStatus } from '../src/client';
+import { prisma, UserRole, ProviderStatus, AvailabilityStatus } from '../src/client.js';
 
 const pilotCategories = [
   { slug: 'plumbing', name: 'Сантехника', serviceSlug: 'plumber-callout', serviceName: 'Выезд сантехника' },
@@ -12,7 +12,6 @@ async function seedProvider(input: {
   index: number;
   cityId: string;
   serviceId: string;
-  categorySlug: string;
   available: boolean;
   latitude: number;
   longitude: number;
@@ -99,7 +98,6 @@ async function main() {
         index: providerIndex,
         cityId: pavlodar.id,
         serviceId: service.id,
-        categorySlug: item.slug,
         available: item.slug === 'plumbing' ? offset < 4 : offset === 0,
         latitude: 52.287 + (providerIndex % 5) * 0.004,
         longitude: 76.967 + (providerIndex % 4) * 0.005,
