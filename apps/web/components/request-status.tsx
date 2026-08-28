@@ -66,7 +66,7 @@ export function RequestStatus({ requestId }: { requestId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
 
-  const tokenHeaders = useCallback(() => {
+  const tokenHeaders = useCallback((): Record<string, string> => {
     return accessToken ? { 'x-qalahub-request-token': accessToken } : {};
   }, [accessToken]);
 
