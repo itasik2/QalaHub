@@ -75,7 +75,6 @@ export class OfferSelectionController {
         data: {
           activeJobs: { increment: 1 },
           availability: AvailabilityStatus.BUSY,
-          availableUntil: null,
           lastAvailabilityChange: now,
         },
       });
