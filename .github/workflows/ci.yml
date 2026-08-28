@@ -36,6 +36,9 @@ jobs:
       REDIS_URL: redis://localhost:6379
       API_PORT: 4000
       INTERNAL_API_TOKEN: ci-internal-token
+      PHONE_VERIFICATION_SECRET: ci-phone-secret
+      PHONE_VERIFICATION_EXPOSE_CODE: true
+      SMS_PROVIDER: console
       SUPPLY_HEALTH_TARGET_AVAILABLE: 5
     steps:
       - uses: actions/checkout@v4
@@ -63,6 +66,11 @@ jobs:
 
           node scripts/smoke-matching.mjs
           STATUS=$?
+
+          if [ "$STATUS" -eq 0 ]; then
+            node scripts/smoke-phone-verification.mjs
+            STATUS=$?
+          fi
 
           if [ "$STATUS" -ne 0 ]; then
             echo "==== API LOG ===="
