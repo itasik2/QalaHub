@@ -11,6 +11,10 @@ export class MatchingQueueService implements OnModuleDestroy {
 
   readonly queue = new Queue('matching', { connection: this.connection });
 
+  async ping() {
+    return this.connection.ping();
+  }
+
   async start(requestId: string) {
     return this.queue.add(
       'start',
