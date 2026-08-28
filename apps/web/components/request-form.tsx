@@ -96,8 +96,11 @@ export function RequestForm() {
       if (!response.ok) {
         throw new Error(body?.message ?? 'Не удалось создать заявку');
       }
+      if (!body?.requestId || !body?.accessToken) {
+        throw new Error('API не вернул защищённый доступ к заявке');
+      }
 
-      sessionStorage.setItem(`qalahub:request:${body.requestId}:phone`, phone.trim());
+      localStorage.setItem(`qalahub:request:${body.requestId}:token`, body.accessToken);
       window.location.assign(`/request/${body.requestId}`);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Не удалось создать заявку');
