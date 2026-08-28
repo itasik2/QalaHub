@@ -35,11 +35,18 @@ export class ProviderDashboardController {
           expiresAt: { gt: now },
         },
         orderBy: { expiresAt: 'asc' },
-        include: {
+        select: {
+          id: true,
+          expiresAt: true,
+          sentAt: true,
           request: {
-            include: {
-              category: true,
-              service: true,
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              urgency: true,
+              category: { select: { slug: true, name: true } },
+              service: { select: { slug: true, name: true } },
             },
           },
         },
@@ -50,9 +57,27 @@ export class ProviderDashboardController {
           status: { in: [OrderStatus.CONFIRMED, OrderStatus.IN_PROGRESS] },
         },
         orderBy: { createdAt: 'desc' },
-        include: {
-          request: true,
-          offer: true,
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+          request: {
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              urgency: true,
+            },
+          },
+          offer: {
+            select: {
+              id: true,
+              amountKzt: true,
+              etaMinutes: true,
+              comment: true,
+            },
+          },
         },
       }),
     ]);
@@ -72,16 +97,8 @@ export class ProviderDashboardController {
           title: attempt.request.title,
           description: attempt.request.description,
           urgency: attempt.request.urgency,
-          category: {
-            slug: attempt.request.category.slug,
-            name: attempt.request.category.name,
-          },
-          service: attempt.request.service
-            ? {
-                slug: attempt.request.service.slug,
-                name: attempt.request.service.name,
-              }
-            : null,
+          category: attempt.request.category,
+          service: attempt.request.service,
         },
       })),
       activeOrders,
