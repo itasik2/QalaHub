@@ -14,6 +14,7 @@ import {
   prisma,
 } from '@qalahub/db';
 import { syncProviderReadiness } from './provider-readiness.js';
+import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
 class StartProviderOnboardingDto {
   phone!: string;
@@ -56,6 +57,7 @@ export class ProviderOnboardingController {
       where: { phone },
       include: { provider: true },
     });
+    const previousCityId = existingUser?.provider?.cityId;
 
     let providerId: string;
 
@@ -107,6 +109,9 @@ export class ProviderOnboardingController {
 
     const state = await syncProviderReadiness(providerId);
     if (!state) throw new BadRequestException('provider could not be created');
+
+    const affectedCityIds = new Set([city.id, ...(previousCityId ? [previousCityId] : [])]);
+    await Promise.all([...affectedCityIds].map((cityId) => reconcileSupplyNeedsByCityId(cityId)));
 
     return {
       ok: true,
@@ -232,6 +237,9 @@ export class ProviderOnboardingController {
 
     const state = await syncProviderReadiness(providerId);
     if (!state) throw new BadRequestException('provider not found after update');
+
+    const affectedCityIds = new Set([provider.cityId, city.id]);
+    await Promise.all([...affectedCityIds].map((cityId) => reconcileSupplyNeedsByCityId(cityId)));
 
     return {
       ok: true,
