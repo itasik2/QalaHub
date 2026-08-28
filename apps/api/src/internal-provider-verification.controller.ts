@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { prisma } from '@qalahub/db';
 import { syncProviderReadiness } from './provider-readiness.js';
+import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
 @Controller('internal/providers')
 export class InternalProviderVerificationController {
@@ -35,6 +36,8 @@ export class InternalProviderVerificationController {
 
     const state = await syncProviderReadiness(providerId);
     if (!state) throw new BadRequestException('provider not found after verification');
+
+    await reconcileSupplyNeedsByCityId(provider.cityId);
 
     return {
       ok: true,
