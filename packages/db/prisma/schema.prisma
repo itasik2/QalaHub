@@ -94,13 +94,14 @@ enum ExceptionStatus {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  phone     String?  @unique
-  email     String?  @unique
-  name      String?
-  role      UserRole @default(CUSTOMER)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String    @id @default(cuid())
+  phone           String?   @unique
+  phoneVerifiedAt DateTime?
+  email           String?   @unique
+  name            String?
+  role            UserRole  @default(CUSTOMER)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   provider Provider?
   requests Request[]
@@ -156,6 +157,7 @@ model Provider {
   status                 ProviderStatus     @default(ONBOARDING)
   availability           AvailabilityStatus @default(OFFLINE)
   availableUntil         DateTime?
+  onboardingCompletedAt  DateTime?
   serviceRadiusKm        Float              @default(10)
   latitude               Float?
   longitude              Float?
