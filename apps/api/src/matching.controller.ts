@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
 import { prisma } from '@qalahub/db';
-import { MatchingQueueService } from './matching-queue.service';
+import { MatchingQueueService } from './matching-queue.service.js';
 
 class StartMatchingDto {
   requestId!: string;
