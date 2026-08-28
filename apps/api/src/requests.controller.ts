@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { prisma, RequestUrgency } from '@qalahub/db';
-import { MatchingQueueService } from './matching-queue.service';
+import { MatchingQueueService } from './matching-queue.service.js';
 
 class CreateRequestDto {
   customerPhone!: string;
@@ -90,7 +90,7 @@ export class RequestsController {
           include: { provider: { include: { user: true } } },
         },
         dispatchAttempts: {
-          orderBy: [{ wave: 'asc' }, { sentAt: 'asc' }],
+          orderBy: [{ round: 'asc' }, { wave: 'asc' }, { sentAt: 'asc' }],
           include: { provider: { include: { user: true } } },
         },
         events: { orderBy: { createdAt: 'asc' } },
