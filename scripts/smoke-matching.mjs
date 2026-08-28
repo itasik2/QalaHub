@@ -230,8 +230,14 @@ if (finalSelectedOffer.provider.activeJobs !== providerJobsBeforeSelection + 1) 
     `Provider activeJobs was not incremented: before=${providerJobsBeforeSelection}, after=${finalSelectedOffer.provider.activeJobs}`,
   );
 }
-if (finalSelectedOffer.provider.availability !== 'BUSY') {
-  throw new Error(`Selected provider must become BUSY, got ${finalSelectedOffer.provider.availability}`);
+const selectedProviderDashboard = await jsonFetch(
+  `${apiBase}/providers/${selectedOffer.providerId}/dashboard`,
+  { headers: providerAuthHeaders(selectedOffer.providerId) },
+);
+if (selectedProviderDashboard.provider.availability !== 'BUSY') {
+  throw new Error(
+    `Selected provider must become BUSY, got ${selectedProviderDashboard.provider.availability}`,
+  );
 }
 if (!confirmed.events.some((event) => event.type === 'offer.selected')) {
   throw new Error('Missing offer.selected event');
@@ -426,7 +432,7 @@ console.log('SMOKE_MATCHING_OK', {
   unauthenticatedRequestRejected,
   redundantProviderMisses: secondAttemptAfterTimeout.provider.consecutiveMisses,
   availabilitySelfService: available.provider.availability,
-  selectedProviderAvailability: finalSelectedOffer.provider.availability,
+  selectedProviderAvailability: selectedProviderDashboard.provider.availability,
   providerAvailabilityAfterCompletion: completedAction.provider.availability,
   exceptions: completed.exceptions.length,
   selectedProvider: completed.order.provider.user.name,
