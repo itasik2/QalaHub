@@ -1,8 +1,8 @@
 import { Controller, Get, Module } from '@nestjs/common';
-import { MatchingController } from './matching.controller';
-import { MatchingQueueService } from './matching-queue.service';
-import { ProviderActionsController } from './provider-actions.controller';
-import { RequestsController } from './requests.controller';
+import { MatchingController } from './matching.controller.js';
+import { MatchingQueueService } from './matching-queue.service.js';
+import { ProviderActionsController } from './provider-actions.controller.js';
+import { RequestsController } from './requests.controller.js';
 
 @Controller('health')
 class HealthController {
