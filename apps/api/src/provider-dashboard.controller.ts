@@ -1,11 +1,17 @@
-import { BadRequestException, Controller, Get, Param } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Headers, Param } from '@nestjs/common';
 import { OrderStatus, prisma } from '@qalahub/db';
 import { syncProviderReadiness } from './provider-readiness.js';
+import { requireProviderSession } from './provider-session.js';
 
 @Controller('providers')
 export class ProviderDashboardController {
   @Get(':providerId/dashboard')
-  async dashboard(@Param('providerId') providerId: string) {
+  async dashboard(
+    @Param('providerId') providerId: string,
+    @Headers('authorization') authorization?: string,
+  ) {
+    requireProviderSession(authorization, providerId);
+
     const readiness = await syncProviderReadiness(providerId);
     if (!readiness) throw new BadRequestException('provider not found');
 
