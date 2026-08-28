@@ -16,6 +16,65 @@ async function jsonFetch(url, options) {
   return body;
 }
 
+// Regression: starting provider onboarding with an existing customer's phone must not
+// mutate that user's name/role before the phone is actually verified.
+const existingCustomerPhone = '+77000006666';
+await jsonFetch(`${apiBase}/requests`, {
+  method: 'POST',
+  body: JSON.stringify({
+    customerPhone: existingCustomerPhone,
+    citySlug: 'pavlodar',
+    categorySlug: 'electrical',
+    serviceSlug: 'electrician-callout',
+    title: 'Проверка customer identity CI',
+    description: 'Создаём существующего заказчика перед provider onboarding',
+    urgency: 'FLEXIBLE',
+    latitude: 52.287,
+    longitude: 76.967,
+    maxDistanceKm: 10,
+  }),
+});
+
+const customerUpgrade = await jsonFetch(`${apiBase}/providers/onboarding/start`, {
+  method: 'POST',
+  body: JSON.stringify({
+    phone: existingCustomerPhone,
+    name: 'НЕ ДОЛЖНО ЗАПИСАТЬСЯ ДО OTP',
+    citySlug: 'pavlodar',
+  }),
+});
+if (!customerUpgrade.providerId) throw new Error('Customer-to-provider onboarding was not created');
+if (!customerUpgrade.readiness.missing.includes('PHONE_UNVERIFIED')) {
+  throw new Error(`Customer upgrade did not require OTP: ${JSON.stringify(customerUpgrade.readiness)}`);
+}
+
+const customerUpgradeCode = await jsonFetch(
+  `${apiBase}/providers/${customerUpgrade.providerId}/phone-verification/request`,
+  { method: 'POST', body: '{}' },
+);
+if (!customerUpgradeCode.devCode) throw new Error('Customer upgrade OTP was not exposed in CI');
+
+const customerUpgradeVerified = await jsonFetch(
+  `${apiBase}/providers/${customerUpgrade.providerId}/phone-verification/verify`,
+  { method: 'POST', body: JSON.stringify({ code: customerUpgradeCode.devCode }) },
+);
+if (!customerUpgradeVerified.sessionToken) {
+  throw new Error('Customer upgrade OTP did not issue provider session');
+}
+
+const customerUpgradeDashboard = await jsonFetch(
+  `${apiBase}/providers/${customerUpgrade.providerId}/dashboard`,
+  { headers: { authorization: `Bearer ${customerUpgradeVerified.sessionToken}` } },
+);
+if (customerUpgradeDashboard.provider.user.name === 'НЕ ДОЛЖНО ЗАПИСАТЬСЯ ДО OTP') {
+  throw new Error('Unauthenticated onboarding mutated existing customer name before OTP');
+}
+if (customerUpgradeDashboard.provider.user.role !== 'PROVIDER') {
+  throw new Error(
+    `Verified customer-to-provider upgrade has role ${customerUpgradeDashboard.provider.user.role}`,
+  );
+}
+
 const onboarding = await jsonFetch(`${apiBase}/providers/onboarding/start`, {
   method: 'POST',
   body: JSON.stringify({
@@ -113,6 +172,9 @@ const dashboard = await jsonFetch(
 if (!dashboard.provider.user.phoneVerifiedAt) {
   throw new Error('Dashboard does not reflect phone verification');
 }
+if (dashboard.provider.user.role !== 'PROVIDER') {
+  throw new Error(`Dashboard user role is ${dashboard.provider.user.role}, expected PROVIDER`);
+}
 if (dashboard.provider.status !== 'ACTIVE') {
   throw new Error(`Dashboard provider status is ${dashboard.provider.status}, expected ACTIVE`);
 }
@@ -122,6 +184,8 @@ console.log('SMOKE_PHONE_VERIFICATION_OK', {
   delivery: requested.delivery.provider,
   invalidCodeRejected: invalidRejected,
   unauthenticatedDashboardRejected,
+  existingCustomerNameProtected: customerUpgradeDashboard.provider.user.name !== 'НЕ ДОЛЖНО ЗАПИСАТЬСЯ ДО OTP',
+  customerUpgradeRole: customerUpgradeDashboard.provider.user.role,
   sessionIssued: true,
   status: dashboard.provider.status,
   phoneVerified: Boolean(dashboard.provider.user.phoneVerifiedAt),
