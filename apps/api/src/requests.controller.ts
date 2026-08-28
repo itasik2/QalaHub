@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { prisma, RequestUrgency } from '@qalahub/db';
+import { prisma, RequestUrgency, UserRole } from '@qalahub/db';
 import { MatchingQueueService } from './matching-queue.service.js';
 import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
@@ -22,17 +22,25 @@ export class RequestsController {
 
   @Post()
   async create(@Body() body: CreateRequestDto) {
-    if (!body.customerPhone || !body.citySlug || !body.categorySlug || !body.title) {
+    const customerPhone = body.customerPhone?.trim();
+    const title = body.title?.trim();
+    if (!customerPhone || !body.citySlug || !body.categorySlug || !title) {
       throw new BadRequestException('customerPhone, citySlug, categorySlug and title are required');
+    }
+    if (!/^\+?[0-9]{10,15}$/.test(customerPhone)) {
+      throw new BadRequestException('customerPhone must contain 10 to 15 digits');
     }
 
     const [customer, city, category] = await Promise.all([
-      prisma.user.findUnique({ where: { phone: body.customerPhone } }),
+      prisma.user.upsert({
+        where: { phone: customerPhone },
+        update: {},
+        create: { phone: customerPhone, role: UserRole.CUSTOMER },
+      }),
       prisma.city.findUnique({ where: { slug: body.citySlug } }),
       prisma.category.findUnique({ where: { slug: body.categorySlug } }),
     ]);
 
-    if (!customer) throw new BadRequestException('customer not found');
     if (!city?.active) throw new BadRequestException('city not found or inactive');
     if (!category?.active) throw new BadRequestException('category not found or inactive');
 
@@ -52,8 +60,8 @@ export class RequestsController {
         cityId: city.id,
         categoryId: category.id,
         serviceId: service?.id,
-        title: body.title,
-        description: body.description,
+        title,
+        description: body.description?.trim() || null,
         urgency: body.urgency ?? RequestUrgency.TODAY,
         latitude: body.latitude,
         longitude: body.longitude,
