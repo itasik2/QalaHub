@@ -8,6 +8,7 @@ import {
   RequestStatus,
   prisma,
 } from '@qalahub/db';
+import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
 @Controller('requests')
 export class OfferSelectionController {
@@ -20,7 +21,10 @@ export class OfferSelectionController {
     if (!request) throw new BadRequestException('request not found');
     if (request.order) throw new ConflictException('provider already selected for this request');
 
-    const offer = await prisma.offer.findUnique({ where: { id: offerId } });
+    const offer = await prisma.offer.findUnique({
+      where: { id: offerId },
+      include: { provider: { select: { cityId: true } } },
+    });
     if (!offer || offer.requestId !== requestId) {
       throw new BadRequestException('offer not found for request');
     }
@@ -110,6 +114,8 @@ export class OfferSelectionController {
 
       return createdOrder;
     });
+
+    await reconcileSupplyNeedsByCityId(offer.provider.cityId);
 
     return {
       ok: true,
