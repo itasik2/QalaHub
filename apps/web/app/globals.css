@@ -1,0 +1,105 @@
+* { box-sizing: border-box; }
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #111827;
+  background: #f6f7f9;
+}
+
+body { margin: 0; }
+button, input { font: inherit; }
+
+.shell {
+  width: min(1120px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 48px 0 80px;
+}
+
+.hero,
+.section {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 24px;
+  padding: clamp(24px, 4vw, 56px);
+  margin-bottom: 24px;
+}
+
+.eyebrow {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #4b5563;
+}
+
+h1 {
+  max-width: 850px;
+  margin: 14px 0 18px;
+  font-size: clamp(38px, 7vw, 72px);
+  line-height: .98;
+  letter-spacing: -.045em;
+}
+
+h2 { margin: 8px 0 24px; font-size: clamp(28px, 4vw, 42px); }
+
+.lead {
+  max-width: 760px;
+  color: #4b5563;
+  font-size: 19px;
+  line-height: 1.6;
+}
+
+.requestBox {
+  margin-top: 34px;
+  padding: 20px;
+  border-radius: 18px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+}
+
+.requestBox label { display: block; margin-bottom: 10px; font-weight: 700; }
+.requestBox small { display: block; margin-top: 9px; color: #6b7280; }
+
+.requestRow { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.requestRow input,
+.requestRow button {
+  min-height: 52px;
+  border-radius: 12px;
+  border: 1px solid #d1d5db;
+  padding: 0 16px;
+}
+.requestRow button { font-weight: 800; }
+
+.categoryGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.categoryCard {
+  min-height: 130px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  background: #fafafa;
+}
+.categoryCard span { font-weight: 800; }
+.categoryCard strong { font-size: 12px; color: #6b7280; text-transform: uppercase; }
+
+.automation {
+  display: grid;
+  grid-template-columns: .8fr 1.2fr;
+  gap: 40px;
+}
+.automation ol { margin: 0; padding-left: 24px; color: #374151; line-height: 1.8; }
+
+@media (max-width: 800px) {
+  .shell { width: min(100% - 20px, 1120px); padding-top: 20px; }
+  .hero, .section { border-radius: 18px; padding: 24px; }
+  .requestRow { grid-template-columns: 1fr; }
+  .categoryGrid { grid-template-columns: 1fr 1fr; }
+  .automation { grid-template-columns: 1fr; gap: 8px; }
+}
