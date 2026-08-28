@@ -3,14 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "./dist/src/client.js",
+  "types": "./dist/src/client.d.ts",
   "exports": {
-    ".": "./src/client.ts"
+    ".": {
+      "types": "./dist/src/client.d.ts",
+      "import": "./dist/src/client.js"
+    }
   },
   "scripts": {
+    "build": "tsc -p tsconfig.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "prisma:seed": "prisma db seed",
+    "prisma:seed": "prisma generate && tsc -p tsconfig.json && prisma db seed",
     "prisma:init-sql": "prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script",
     "prisma:studio": "prisma studio"
   },
@@ -23,7 +29,6 @@
   "devDependencies": {
     "@types/pg": "^8.15.0",
     "prisma": "^7.10.0",
-    "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }
 }
