@@ -1,4 +1,5 @@
 const apiBase = process.env.SMOKE_API_URL ?? 'http://127.0.0.1:4000/api/v1';
+const internalToken = process.env.INTERNAL_API_TOKEN ?? 'ci-internal-token';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -192,6 +193,110 @@ if (confirmed.exceptions?.length !== 0) {
   throw new Error(`Human exception appeared after order confirmation: ${JSON.stringify(confirmed.exceptions)}`);
 }
 
+// Self-service onboarding: profile starts incomplete and must not become ACTIVE merely because
+// a client knows the phone number. Phone verification is accepted only through the internal hook.
+const onboarding = await jsonFetch(`${apiBase}/providers/onboarding/start`, {
+  method: 'POST',
+  body: JSON.stringify({
+    phone: '+77000008888',
+    name: 'Новый сантехник CI',
+    citySlug: 'pavlodar',
+  }),
+});
+if (onboarding.readiness.status !== 'ONBOARDING') {
+  throw new Error(`New provider activated too early: ${JSON.stringify(onboarding.readiness)}`);
+}
+if (!onboarding.readiness.missing.includes('PHONE_UNVERIFIED')) {
+  throw new Error('Onboarding must require verified phone');
+}
+
+const phoneVerified = await jsonFetch(
+  `${apiBase}/internal/providers/${onboarding.providerId}/phone-verified`,
+  {
+    method: 'POST',
+    headers: { 'x-qalahub-internal-token': internalToken },
+    body: '{}',
+  },
+);
+if (phoneVerified.readiness.status !== 'VERIFIED' || phoneVerified.readiness.ready) {
+  throw new Error(`Phone verification readiness is invalid: ${JSON.stringify(phoneVerified.readiness)}`);
+}
+
+const profiled = await jsonFetch(
+  `${apiBase}/providers/${onboarding.providerId}/onboarding/profile`,
+  {
+    method: 'PUT',
+    body: JSON.stringify({
+      citySlug: 'pavlodar',
+      latitude: 52.287,
+      longitude: 76.967,
+      serviceRadiusKm: 12,
+      services: [
+        {
+          categorySlug: 'plumbing',
+          serviceSlug: 'plumber-callout',
+          minPrice: 6000,
+          maxPrice: 18000,
+        },
+      ],
+    }),
+  },
+);
+if (!profiled.readiness.ready || profiled.readiness.status !== 'ACTIVE') {
+  throw new Error(`Complete provider profile did not auto-activate: ${JSON.stringify(profiled.readiness)}`);
+}
+
+const onboardedAvailable = await jsonFetch(
+  `${apiBase}/providers/${onboarding.providerId}/availability`,
+  {
+    method: 'POST',
+    body: JSON.stringify({ status: 'AVAILABLE', minutes: 60 }),
+  },
+);
+if (onboardedAvailable.provider.availability !== 'AVAILABLE') {
+  throw new Error('Onboarded provider could not self-activate availability');
+}
+
+// Create demand in a deliberately thin category. Supply Health should identify it automatically
+// as a recruitment priority without an administrator curating a spreadsheet.
+const electricalDemand = await jsonFetch(`${apiBase}/requests`, {
+  method: 'POST',
+  body: JSON.stringify({
+    customerPhone: '+77000009999',
+    citySlug: 'pavlodar',
+    categorySlug: 'electrical',
+    serviceSlug: 'electrician-callout',
+    title: 'Нужен электрик',
+    description: 'Контроль спроса для Supply Health',
+    urgency: 'NOW',
+    latitude: 52.287,
+    longitude: 76.967,
+    maxDistanceKm: 10,
+  }),
+});
+if (!electricalDemand.requestId) throw new Error('Electrical demand request was not created');
+
+const supplyHealth = await waitFor('supply health metrics', async () => {
+  const health = await jsonFetch(`${apiBase}/supply-health/pavlodar`);
+  const plumbing = health.categories.find((item) => item.category.slug === 'plumbing');
+  const electrical = health.categories.find((item) => item.category.slug === 'electrical');
+  return plumbing?.supply.registered >= 11 && electrical?.demand.requests7d >= 1
+    ? health
+    : null;
+});
+
+const plumbingHealth = supplyHealth.categories.find((item) => item.category.slug === 'plumbing');
+const electricalHealth = supplyHealth.categories.find((item) => item.category.slug === 'electrical');
+if (!plumbingHealth || plumbingHealth.supply.availableNow < 5) {
+  throw new Error(`Plumbing supply did not include onboarded provider: ${JSON.stringify(plumbingHealth)}`);
+}
+if (!electricalHealth || !['NEED_PROVIDERS', 'CRITICAL'].includes(electricalHealth.health)) {
+  throw new Error(`Thin electrical supply was not detected: ${JSON.stringify(electricalHealth)}`);
+}
+if (!supplyHealth.recruitmentPriorities.some((item) => item.categorySlug === 'electrical')) {
+  throw new Error('Electrical category missing from automatic recruitment priorities');
+}
+
 console.log('SMOKE_MATCHING_OK', {
   requestId: confirmed.id,
   status: confirmed.status,
@@ -206,4 +311,15 @@ console.log('SMOKE_MATCHING_OK', {
   selectedProvider: confirmed.order.provider.user.name,
   amountKzt: confirmed.order.offer.amountKzt,
   etaMinutes: confirmed.order.offer.etaMinutes,
+  onboarding: {
+    providerId: onboarding.providerId,
+    status: profiled.readiness.status,
+    ready: profiled.readiness.ready,
+    availability: onboardedAvailable.provider.availability,
+  },
+  supplyHealth: {
+    plumbingAvailable: plumbingHealth.supply.availableNow,
+    electricalHealth: electricalHealth.health,
+    electricalGap: electricalHealth.supply.supplyGap,
+  },
 });
