@@ -9,6 +9,7 @@ import { ProviderActionsController } from './provider-actions.controller.js';
 import { ProviderAvailabilityController } from './provider-availability.controller.js';
 import { ProviderDashboardController } from './provider-dashboard.controller.js';
 import { ProviderOnboardingController } from './provider-onboarding.controller.js';
+import { ProviderPhoneVerificationController } from './provider-phone-verification.controller.js';
 import { RequestCancellationController } from './request-cancellation.controller.js';
 import { RequestsController } from './requests.controller.js';
 import { SupplyHealthController } from './supply-health.controller.js';
@@ -36,6 +37,7 @@ class HealthController {
     ProviderAvailabilityController,
     ProviderDashboardController,
     ProviderOnboardingController,
+    ProviderPhoneVerificationController,
     InternalProviderVerificationController,
     OfferSelectionController,
     OrderLifecycleController,
