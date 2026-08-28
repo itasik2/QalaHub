@@ -41,7 +41,12 @@ const terminalStatuses = new Set<RequestStatus>([
 const dispatchJobId = (requestId: string, round: number, wave: number) =>
   `${requestId}-r${round}-w${wave}`;
 
-function distanceKm(lat1?: number | null, lon1?: number | null, lat2?: number | null, lon2?: number | null) {
+function distanceKm(
+  lat1?: number | null,
+  lon1?: number | null,
+  lat2?: number | null,
+  lon2?: number | null,
+) {
   if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return 0;
   const toRad = (value: number) => (value * Math.PI) / 180;
   const earthRadiusKm = 6371;
@@ -96,12 +101,13 @@ async function refreshCandidates(requestId: string) {
         rating: provider.rating,
         activeJobs: provider.activeJobs,
       };
-      return { provider, candidate, score: scoreProvider(candidate), distance };
+      return { provider, score: scoreProvider(candidate), distance };
     })
-    .filter(({ provider, score, distance }) =>
-      Number.isFinite(score) &&
-      distance <= request.maxDistanceKm &&
-      distance <= provider.serviceRadiusKm,
+    .filter(
+      ({ provider, score, distance }) =>
+        Number.isFinite(score) &&
+        distance <= request.maxDistanceKm &&
+        distance <= provider.serviceRadiusKm,
     )
     .sort((a, b) => b.score - a.score);
 
@@ -131,6 +137,48 @@ async function refreshCandidates(requestId: string) {
   };
 }
 
+async function cancelOutstandingAttempts(requestId: string, reason: string) {
+  const outstanding = await prisma.dispatchAttempt.findMany({
+    where: { requestId, response: null },
+    select: { id: true, providerId: true },
+  });
+
+  if (outstanding.length === 0) return 0;
+
+  const now = new Date();
+  const attemptIds = outstanding.map((attempt) => attempt.id);
+  const providerIds = outstanding.map((attempt) => attempt.providerId);
+
+  await prisma.$transaction([
+    prisma.dispatchAttempt.updateMany({
+      where: { id: { in: attemptIds }, response: null },
+      data: { response: DispatchResponse.CANCELLED, respondedAt: now },
+    }),
+    prisma.matchCandidate.updateMany({
+      where: {
+        requestId,
+        providerId: { in: providerIds },
+        status: CandidateStatus.DISPATCHED,
+      },
+      data: { status: CandidateStatus.SKIPPED },
+    }),
+    prisma.requestEvent.create({
+      data: {
+        requestId,
+        type: 'dispatch.pending.cancelled',
+        payload: {
+          reason,
+          count: outstanding.length,
+          attemptIds,
+          providerIds,
+        },
+      },
+    }),
+  ]);
+
+  return outstanding.length;
+}
+
 async function markExpiredAttempts(requestId: string) {
   const now = new Date();
   const expired = await prisma.dispatchAttempt.findMany({
@@ -141,7 +189,8 @@ async function markExpiredAttempts(requestId: string) {
   for (const attempt of expired) {
     const nextMisses = attempt.provider.consecutiveMisses + 1;
     const shouldPause =
-      nextMisses >= pauseAfterMisses && attempt.provider.availability === AvailabilityStatus.AVAILABLE;
+      nextMisses >= pauseAfterMisses &&
+      attempt.provider.availability === AvailabilityStatus.AVAILABLE;
 
     await prisma.$transaction(async (tx) => {
       await tx.dispatchAttempt.update({
@@ -184,6 +233,7 @@ async function finalizeRequest(requestId: string) {
   });
 
   if (offers > 0) {
+    const cancelled = await cancelOutstandingAttempts(requestId, 'MATCH_SATISFIED');
     await prisma.request.update({
       where: { id: requestId },
       data: { status: RequestStatus.OFFERS_RECEIVED, matchedAt: new Date() },
@@ -192,7 +242,11 @@ async function finalizeRequest(requestId: string) {
       data: {
         requestId,
         type: 'matching.completed',
-        payload: { offers, humanInterventionRequired: false },
+        payload: {
+          offers,
+          cancelledDispatches: cancelled,
+          humanInterventionRequired: false,
+        },
       },
     });
     return { state: 'OFFERS_RECEIVED', offers };
@@ -289,7 +343,9 @@ async function startMatching(job: Job<{ requestId: string }>) {
   const { requestId } = job.data;
   const request = await prisma.request.findUnique({ where: { id: requestId } });
   if (!request) throw new Error(`Request ${requestId} not found`);
-  if (terminalStatuses.has(request.status)) return { state: 'TERMINAL', status: request.status };
+  if (terminalStatuses.has(request.status)) {
+    return { state: 'TERMINAL', status: request.status };
+  }
 
   await prisma.request.update({
     where: { id: requestId },
@@ -313,6 +369,30 @@ async function startMatching(job: Job<{ requestId: string }>) {
 
 async function dispatchWave(job: Job<{ requestId: string; round: number; wave: number }>) {
   const { requestId, round, wave } = job.data;
+
+  const requestBeforeTimeouts = await prisma.request.findUnique({ where: { id: requestId } });
+  if (!requestBeforeTimeouts) throw new Error(`Request ${requestId} not found`);
+  if (terminalStatuses.has(requestBeforeTimeouts.status)) {
+    return { state: 'TERMINAL', status: requestBeforeTimeouts.status };
+  }
+  if (round !== requestBeforeTimeouts.matchingRound) return { state: 'STALE_ROUND' };
+
+  const offersBeforeTimeouts = await prisma.offer.count({
+    where: { requestId, status: OfferStatus.PENDING },
+  });
+  if (offersBeforeTimeouts >= config.maxOffers) {
+    const cancelled = await cancelOutstandingAttempts(requestId, 'MAX_OFFERS_REACHED');
+    await prisma.request.update({
+      where: { id: requestId },
+      data: { status: RequestStatus.OFFERS_RECEIVED, matchedAt: new Date() },
+    });
+    return {
+      state: 'ENOUGH_OFFERS',
+      offers: offersBeforeTimeouts,
+      cancelledDispatches: cancelled,
+    };
+  }
+
   await markExpiredAttempts(requestId);
 
   const request = await prisma.request.findUnique({ where: { id: requestId } });
@@ -324,11 +404,12 @@ async function dispatchWave(job: Job<{ requestId: string; round: number; wave: n
     where: { requestId, status: OfferStatus.PENDING },
   });
   if (offers >= config.maxOffers) {
+    const cancelled = await cancelOutstandingAttempts(requestId, 'MAX_OFFERS_REACHED');
     await prisma.request.update({
       where: { id: requestId },
       data: { status: RequestStatus.OFFERS_RECEIVED, matchedAt: new Date() },
     });
-    return { state: 'ENOUGH_OFFERS', offers };
+    return { state: 'ENOUGH_OFFERS', offers, cancelledDispatches: cancelled };
   }
 
   if (wave >= config.maxWaves) return expandSearch(requestId);
@@ -401,6 +482,29 @@ async function dispatchWave(job: Job<{ requestId: string; round: number; wave: n
 
 async function reconcile(job: Job<{ requestId: string }>) {
   const { requestId } = job.data;
+
+  const requestBeforeTimeouts = await prisma.request.findUnique({ where: { id: requestId } });
+  if (!requestBeforeTimeouts) throw new Error(`Request ${requestId} not found`);
+  if (terminalStatuses.has(requestBeforeTimeouts.status)) {
+    return { state: 'TERMINAL', status: requestBeforeTimeouts.status };
+  }
+
+  const offersBeforeTimeouts = await prisma.offer.count({
+    where: { requestId, status: OfferStatus.PENDING },
+  });
+  if (offersBeforeTimeouts >= config.maxOffers) {
+    const cancelled = await cancelOutstandingAttempts(requestId, 'MAX_OFFERS_REACHED');
+    await prisma.request.update({
+      where: { id: requestId },
+      data: { status: RequestStatus.OFFERS_RECEIVED, matchedAt: new Date() },
+    });
+    return {
+      state: 'ENOUGH_OFFERS',
+      offers: offersBeforeTimeouts,
+      cancelledDispatches: cancelled,
+    };
+  }
+
   await markExpiredAttempts(requestId);
 
   const request = await prisma.request.findUnique({ where: { id: requestId } });
@@ -411,11 +515,12 @@ async function reconcile(job: Job<{ requestId: string }>) {
     where: { requestId, status: OfferStatus.PENDING },
   });
   if (offers >= config.maxOffers) {
+    const cancelled = await cancelOutstandingAttempts(requestId, 'MAX_OFFERS_REACHED');
     await prisma.request.update({
       where: { id: requestId },
       data: { status: RequestStatus.OFFERS_RECEIVED, matchedAt: new Date() },
     });
-    return { state: 'ENOUGH_OFFERS', offers };
+    return { state: 'ENOUGH_OFFERS', offers, cancelledDispatches: cancelled };
   }
 
   const pending = await prisma.dispatchAttempt.count({
@@ -460,7 +565,11 @@ worker.on('completed', (job) => {
 });
 
 worker.on('failed', (job, error) => {
-  console.error('[matching] failed', { jobId: job?.id, name: job?.name, error: error.message });
+  console.error('[matching] failed', {
+    jobId: job?.id,
+    name: job?.name,
+    error: error.message,
+  });
 });
 
 async function shutdown(signal: string) {
