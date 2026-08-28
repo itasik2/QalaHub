@@ -61,13 +61,22 @@ function money(value?: number | null) {
 
 export function RequestStatus({ requestId }: { requestId: string }) {
   const [request, setRequest] = useState<RequestState | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [accessLoaded, setAccessLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
-  const [cancelPhone, setCancelPhone] = useState('');
+
+  const tokenHeaders = useCallback(() => {
+    return accessToken ? { 'x-qalahub-request-token': accessToken } : {};
+  }, [accessToken]);
 
   const load = useCallback(async () => {
+    if (!accessToken) return;
     try {
-      const response = await fetch(`${apiBase}/requests/${requestId}`, { cache: 'no-store' });
+      const response = await fetch(`${apiBase}/requests/${requestId}`, {
+        cache: 'no-store',
+        headers: tokenHeaders(),
+      });
       const text = await response.text();
       const body = text ? JSON.parse(text) : null;
       if (!response.ok) throw new Error(body?.message ?? 'Не удалось загрузить заявку');
@@ -76,18 +85,27 @@ export function RequestStatus({ requestId }: { requestId: string }) {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить заявку');
     }
+  }, [accessToken, requestId, tokenHeaders]);
+
+  useEffect(() => {
+    const token = localStorage.getItem(`qalahub:request:${requestId}:token`);
+    setAccessToken(token);
+    setAccessLoaded(true);
+    if (!token) {
+      setError('Доступ к этой заявке не сохранён в браузере. Создайте новую заявку или откройте её на устройстве, где она была создана.');
+    }
   }, [requestId]);
 
   useEffect(() => {
-    setCancelPhone(sessionStorage.getItem(`qalahub:request:${requestId}:phone`) ?? '');
+    if (!accessToken) return;
     void load();
-  }, [load, requestId]);
+  }, [accessToken, load]);
 
   useEffect(() => {
-    if (!request || terminalStatuses.has(request.status) || request.status === 'CONFIRMED') return;
+    if (!accessToken || !request || terminalStatuses.has(request.status)) return;
     const timer = window.setInterval(() => void load(), 1800);
     return () => window.clearInterval(timer);
-  }, [load, request]);
+  }, [accessToken, load, request]);
 
   const pendingOffers = useMemo(
     () => request?.offers.filter((offer) => offer.status === 'PENDING') ?? [],
@@ -95,12 +113,16 @@ export function RequestStatus({ requestId }: { requestId: string }) {
   );
 
   async function selectOffer(offerId: string) {
+    if (!accessToken) return;
     setActionId(offerId);
     setError(null);
     try {
       const response = await fetch(`${apiBase}/requests/${requestId}/offers/${offerId}/select`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...tokenHeaders(),
+        },
         body: '{}',
       });
       const text = await response.text();
@@ -115,17 +137,17 @@ export function RequestStatus({ requestId }: { requestId: string }) {
   }
 
   async function cancelRequest() {
-    if (!cancelPhone.trim()) {
-      setError('Введите номер телефона, указанный при создании заявки.');
-      return;
-    }
+    if (!accessToken) return;
     setActionId('cancel');
     setError(null);
     try {
       const response = await fetch(`${apiBase}/requests/${requestId}/cancel`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ customerPhone: cancelPhone.trim(), reason: 'Отменено заказчиком' }),
+        headers: {
+          'content-type': 'application/json',
+          ...tokenHeaders(),
+        },
+        body: JSON.stringify({ reason: 'Отменено заказчиком' }),
       });
       const text = await response.text();
       const body = text ? JSON.parse(text) : null;
@@ -138,12 +160,25 @@ export function RequestStatus({ requestId }: { requestId: string }) {
     }
   }
 
-  if (!request) {
+  if (!accessLoaded || (!request && accessToken)) {
     return (
       <main className="shell narrowShell">
         <section className="hero compactHero">
           <div className="eyebrow">QalaHub</div>
           <h1 className="pageTitle">{error ?? 'Загружаем заявку…'}</h1>
+        </section>
+      </main>
+    );
+  }
+
+  if (!accessToken || !request) {
+    return (
+      <main className="shell narrowShell">
+        <a className="backLink" href="/">← Новая заявка</a>
+        <section className="hero compactHero">
+          <div className="eyebrow">Защищённая заявка</div>
+          <h1 className="pageTitle">Нет доступа к заявке</h1>
+          <p className="lead smallLead">{error ?? 'Ключ доступа отсутствует в этом браузере.'}</p>
         </section>
       </main>
     );
@@ -250,12 +285,10 @@ export function RequestStatus({ requestId }: { requestId: string }) {
 
       {canCancel ? (
         <section className="cancelPanel">
-          <input
-            value={cancelPhone}
-            onChange={(event) => setCancelPhone(event.target.value)}
-            placeholder="Телефон из заявки"
-            inputMode="tel"
-          />
+          <div>
+            <strong>Заказ больше не нужен?</strong>
+            <p className="mutedText">До начала работы заявку можно отменить без участия администратора.</p>
+          </div>
           <button className="secondaryButton" type="button" onClick={() => void cancelRequest()} disabled={actionId !== null}>
             {actionId === 'cancel' ? 'Отменяем…' : 'Отменить заявку'}
           </button>
