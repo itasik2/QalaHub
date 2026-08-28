@@ -106,16 +106,37 @@ export class RequestsController {
       include: {
         offers: {
           orderBy: { createdAt: 'asc' },
-          include: { provider: { include: { user: true } } },
+          include: {
+            provider: {
+              select: {
+                id: true,
+                rating: true,
+                activeJobs: true,
+                user: { select: { name: true } },
+              },
+            },
+          },
         },
         dispatchAttempts: {
           orderBy: [{ round: 'asc' }, { wave: 'asc' }, { sentAt: 'asc' }],
-          include: { provider: { include: { user: true } } },
+          include: {
+            provider: {
+              select: {
+                id: true,
+                consecutiveMisses: true,
+              },
+            },
+          },
         },
         order: {
           include: {
             offer: true,
-            provider: { include: { user: true } },
+            provider: {
+              select: {
+                id: true,
+                user: { select: { name: true } },
+              },
+            },
           },
         },
         events: { orderBy: { createdAt: 'asc' } },
