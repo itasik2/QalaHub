@@ -117,8 +117,6 @@ for (const required of [
   if (!eventTypes.has(required)) throw new Error(`Missing event: ${required}`);
 }
 
-// The delayed next-wave job is scheduled for 5 seconds in CI. Wait past that point to prove
-// the cancelled provider is not later converted to TIMED_OUT or penalized by stale automation.
 await sleep(6000);
 const afterTimeout = await jsonFetch(`${apiBase}/requests/${created.requestId}`);
 const secondAttemptAfterTimeout = afterTimeout.dispatchAttempts.find(
@@ -196,8 +194,6 @@ if (confirmed.exceptions?.length !== 0) {
   throw new Error(`Human exception appeared after order confirmation: ${JSON.stringify(confirmed.exceptions)}`);
 }
 
-// Self-service onboarding: profile starts incomplete and must not become ACTIVE merely because
-// a client knows the phone number. Phone verification is accepted only through the internal hook.
 const onboarding = await jsonFetch(`${apiBase}/providers/onboarding/start`, {
   method: 'POST',
   body: JSON.stringify({
@@ -260,8 +256,6 @@ if (onboardedAvailable.provider.availability !== 'AVAILABLE') {
   throw new Error('Onboarded provider could not self-activate availability');
 }
 
-// Create demand in a deliberately thin category. Supply Health should identify it automatically
-// as a recruitment priority without an administrator curating a spreadsheet.
 const electricalDemand = await jsonFetch(`${apiBase}/requests`, {
   method: 'POST',
   body: JSON.stringify({
@@ -300,6 +294,19 @@ if (!supplyHealth.recruitmentPriorities.some((item) => item.categorySlug === 'el
   throw new Error('Electrical category missing from automatic recruitment priorities');
 }
 
+const electricalNeed = supplyHealth.recruitmentNeeds?.find(
+  (need) => need.categorySlug === 'electrical',
+);
+if (!electricalNeed) {
+  throw new Error(`Persistent electrical recruitment need missing: ${JSON.stringify(supplyHealth.recruitmentNeeds)}`);
+}
+if (electricalNeed.status !== 'OPEN') {
+  throw new Error(`Electrical recruitment need must be OPEN, got ${electricalNeed.status}`);
+}
+if (electricalNeed.priorityScore <= 0 || electricalNeed.supplyGap <= 0) {
+  throw new Error(`Electrical recruitment need priority is invalid: ${JSON.stringify(electricalNeed)}`);
+}
+
 console.log('SMOKE_MATCHING_OK', {
   requestId: confirmed.id,
   status: confirmed.status,
@@ -325,5 +332,8 @@ console.log('SMOKE_MATCHING_OK', {
     plumbingAvailable: plumbingHealth.supply.availableNow,
     electricalHealth: electricalHealth.health,
     electricalGap: electricalHealth.supply.supplyGap,
+    electricalNeedId: electricalNeed.id,
+    electricalNeedStatus: electricalNeed.status,
+    electricalNeedPriority: electricalNeed.priorityScore,
   },
 });
