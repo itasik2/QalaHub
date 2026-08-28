@@ -57,6 +57,8 @@ type PriceDraft = Record<string, { enabled: boolean; min: string; max: string }>
 type DispatchDraft = Record<string, { amount: string; eta: string }>;
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000/api/v1';
+const providerIdStorageKey = 'qalahub:provider:id';
+const providerSessionStorageKey = 'qalahub:provider:session';
 
 const readinessLabels: Record<string, string> = {
   PHONE_UNVERIFIED: 'Подтвердить номер телефона',
@@ -75,6 +77,7 @@ function money(value?: number | null) {
 export function ProviderConsole() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [providerId, setProviderId] = useState<string | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
@@ -89,8 +92,18 @@ export function ProviderConsole() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const loadDashboard = useCallback(async (id: string) => {
-    const response = await fetch(`${apiBase}/providers/${id}/dashboard`, { cache: 'no-store' });
+  const authorizationHeaders = useCallback((override?: string) => {
+    const token = override ?? sessionToken ?? localStorage.getItem(providerSessionStorageKey);
+    return token ? { authorization: `Bearer ${token}` } : {};
+  }, [sessionToken]);
+
+  const loadDashboard = useCallback(async (id: string, tokenOverride?: string) => {
+    const response = await fetch(`${apiBase}/providers/${id}/dashboard`, {
+      cache: 'no-store',
+      headers: {
+        ...authorizationHeaders(tokenOverride),
+      },
+    });
     const text = await response.text();
     const body = text ? JSON.parse(text) : null;
     if (!response.ok) throw new Error(body?.message ?? 'Не удалось загрузить кабинет');
@@ -98,11 +111,13 @@ export function ProviderConsole() {
     setPhone(body.provider.user.phone ?? '');
     setName(body.provider.user.name ?? '');
     return body as Dashboard;
-  }, []);
+  }, [authorizationHeaders]);
 
   useEffect(() => {
-    const savedProviderId = localStorage.getItem('qalahub:provider:id');
+    const savedProviderId = localStorage.getItem(providerIdStorageKey);
+    const savedSession = localStorage.getItem(providerSessionStorageKey);
     if (savedProviderId) setProviderId(savedProviderId);
+    if (savedSession) setSessionToken(savedSession);
 
     fetch(`${apiBase}/catalog/pavlodar`)
       .then(async (response) => {
@@ -127,12 +142,12 @@ export function ProviderConsole() {
   }, []);
 
   useEffect(() => {
-    if (!providerId) return;
+    if (!providerId || !sessionToken) return;
     let disposed = false;
 
     const refresh = async () => {
       try {
-        const data = await loadDashboard(providerId);
+        const data = await loadDashboard(providerId, sessionToken);
         if (disposed) return;
         setError(null);
         setPrices((current) => {
@@ -149,7 +164,13 @@ export function ProviderConsole() {
         });
       } catch (dashboardError) {
         if (!disposed) {
-          setError(dashboardError instanceof Error ? dashboardError.message : 'Не удалось загрузить кабинет');
+          const message = dashboardError instanceof Error ? dashboardError.message : 'Не удалось загрузить кабинет';
+          setError(message);
+          if (/session|unauthorized|401/i.test(message)) {
+            localStorage.removeItem(providerSessionStorageKey);
+            setSessionToken(null);
+            setDashboard(null);
+          }
         }
       }
     };
@@ -160,7 +181,7 @@ export function ProviderConsole() {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [loadDashboard, providerId]);
+  }, [loadDashboard, providerId, sessionToken]);
 
   const selectedServices = useMemo(() => {
     if (!catalog) return [];
@@ -188,10 +209,19 @@ export function ProviderConsole() {
       const text = await response.text();
       const body = text ? JSON.parse(text) : null;
       if (!response.ok) throw new Error(body?.message ?? 'Не удалось начать регистрацию');
-      localStorage.setItem('qalahub:provider:id', body.providerId);
+
+      localStorage.setItem(providerIdStorageKey, body.providerId);
+      localStorage.removeItem(providerSessionStorageKey);
       setProviderId(body.providerId);
-      setNotice('Профиль создан. Подтвердите телефон и заполните услуги.');
-      await loadDashboard(body.providerId);
+      setSessionToken(null);
+      setDashboard(null);
+      setOtpSent(false);
+      setOtpCode('');
+      setNotice(
+        body.existingProvider
+          ? 'Профиль найден. Подтвердите номер, чтобы войти в кабинет.'
+          : 'Профиль создан. Подтвердите номер, чтобы продолжить.',
+      );
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : 'Не удалось начать регистрацию');
     } finally {
@@ -215,11 +245,6 @@ export function ProviderConsole() {
       if (!response.ok) {
         const retry = body?.retryAfterSeconds ? ` Повторите через ${body.retryAfterSeconds} сек.` : '';
         throw new Error(`${body?.message ?? 'Не удалось отправить код.'}${retry}`);
-      }
-      if (body.alreadyVerified) {
-        setNotice('Номер телефона уже подтверждён.');
-        await loadDashboard(providerId);
-        return;
       }
       setOtpSent(true);
       setOtpCode('');
@@ -250,6 +275,10 @@ export function ProviderConsole() {
       const text = await response.text();
       const body = text ? JSON.parse(text) : null;
       if (!response.ok) throw new Error(body?.message ?? 'Неверный код подтверждения');
+      if (!body.sessionToken) throw new Error('API не вернул сессию исполнителя');
+
+      localStorage.setItem(providerSessionStorageKey, body.sessionToken);
+      setSessionToken(body.sessionToken);
       setOtpSent(false);
       setOtpCode('');
       setNotice(
@@ -257,7 +286,7 @@ export function ProviderConsole() {
           ? 'Телефон подтверждён. Профиль активирован автоматически.'
           : 'Телефон подтверждён. Завершите оставшиеся поля профиля.',
       );
-      await loadDashboard(providerId);
+      await loadDashboard(providerId, body.sessionToken);
     } catch (otpError) {
       setError(otpError instanceof Error ? otpError.message : 'Не удалось подтвердить телефон');
     } finally {
@@ -267,7 +296,7 @@ export function ProviderConsole() {
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!providerId) return;
+    if (!providerId || !sessionToken) return;
     if (selectedServices.length === 0) {
       setError('Выберите хотя бы одну услугу.');
       return;
@@ -279,7 +308,10 @@ export function ProviderConsole() {
     try {
       const response = await fetch(`${apiBase}/providers/${providerId}/onboarding/profile`, {
         method: 'PUT',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...authorizationHeaders(),
+        },
         body: JSON.stringify({
           name: name.trim(),
           citySlug: 'pavlodar',
@@ -323,13 +355,16 @@ export function ProviderConsole() {
   }
 
   async function setAvailability(status: 'AVAILABLE' | 'OFFLINE') {
-    if (!providerId) return;
+    if (!providerId || !sessionToken) return;
     setBusy(`availability:${status}`);
     setError(null);
     try {
       const response = await fetch(`${apiBase}/providers/${providerId}/availability`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...authorizationHeaders(),
+        },
         body: JSON.stringify(status === 'AVAILABLE' ? { status, minutes: 240 } : { status }),
       });
       const text = await response.text();
@@ -344,14 +379,17 @@ export function ProviderConsole() {
   }
 
   async function respondToDispatch(attemptId: string, responseValue: 'ACCEPTED' | 'DECLINED') {
-    if (!providerId) return;
+    if (!providerId || !sessionToken) return;
     const draft = dispatchDrafts[attemptId] ?? { amount: '10000', eta: '30' };
     setBusy(`dispatch:${attemptId}`);
     setError(null);
     try {
       const response = await fetch(`${apiBase}/provider-dispatch/${attemptId}/respond`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...authorizationHeaders(),
+        },
         body: JSON.stringify(
           responseValue === 'ACCEPTED'
             ? {
@@ -375,13 +413,16 @@ export function ProviderConsole() {
   }
 
   async function changeOrder(orderId: string, action: 'start' | 'complete') {
-    if (!providerId) return;
+    if (!providerId || !sessionToken) return;
     setBusy(`order:${orderId}`);
     setError(null);
     try {
       const response = await fetch(`${apiBase}/providers/${providerId}/orders/${orderId}/${action}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...authorizationHeaders(),
+        },
         body: '{}',
       });
       const text = await response.text();
@@ -396,12 +437,14 @@ export function ProviderConsole() {
   }
 
   function forgetProfile() {
-    localStorage.removeItem('qalahub:provider:id');
+    localStorage.removeItem(providerIdStorageKey);
+    localStorage.removeItem(providerSessionStorageKey);
     setProviderId(null);
+    setSessionToken(null);
     setDashboard(null);
     setOtpCode('');
     setOtpSent(false);
-    setNotice('Локальная привязка профиля удалена с этого браузера.');
+    setNotice('Локальная сессия исполнителя удалена с этого браузера.');
   }
 
   if (!providerId) {
@@ -414,7 +457,7 @@ export function ProviderConsole() {
         <section className="hero compactHero">
           <div className="eyebrow">Исполнитель · Павлодар</div>
           <h1 className="pageTitle">Подключитесь к автоматической раздаче заказов</h1>
-          <p className="lead smallLead">Заполните профиль один раз. Дальше вы сами включаете доступность и получаете только подходящие заявки.</p>
+          <p className="lead smallLead">Новый исполнитель создаст профиль, а уже зарегистрированный войдёт по тому же номеру через SMS-код.</p>
 
           <form className="requestBox" onSubmit={startOnboarding}>
             <div className="formGrid twoColumns">
@@ -428,8 +471,55 @@ export function ProviderConsole() {
               </label>
             </div>
             {error ? <div className="formError">{error}</div> : null}
-            <button className="primaryButton" type="submit" disabled={busy !== null}>{busy === 'start' ? 'Создаём профиль…' : 'Продолжить'}</button>
+            <button className="primaryButton" type="submit" disabled={busy !== null}>{busy === 'start' ? 'Проверяем профиль…' : 'Продолжить'}</button>
           </form>
+        </section>
+      </main>
+    );
+  }
+
+  if (!sessionToken) {
+    return (
+      <main className="shell narrowShell">
+        <nav className="topbar">
+          <a className="brand" href="/">QalaHub</a>
+          <button className="textButton" type="button" onClick={forgetProfile}>Другой номер</button>
+        </nav>
+        <section className="hero compactHero">
+          <div className="eyebrow">Безопасный вход</div>
+          <h1 className="pageTitle">Подтвердите номер телефона</h1>
+          <p className="lead smallLead">Код нужен и при первой регистрации, и при входе на новом устройстве. Одного ID профиля для доступа недостаточно.</p>
+
+          {notice ? <div className="noticeBox">{notice}</div> : null}
+          {error ? <div className="formError standaloneError">{error}</div> : null}
+
+          <div className="verificationNotice">
+            {!otpSent ? (
+              <button className="primaryButton" type="button" onClick={() => void requestPhoneCode()} disabled={busy !== null}>
+                {busy === 'otp-request' ? 'Отправляем код…' : 'Получить код по SMS'}
+              </button>
+            ) : (
+              <form className="otpForm" onSubmit={verifyPhoneCode}>
+                <label>
+                  <span>Код из SMS</span>
+                  <input
+                    value={otpCode}
+                    onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    required
+                  />
+                </label>
+                <button className="primaryButton" type="submit" disabled={busy !== null || otpCode.length !== 6}>
+                  {busy === 'otp-verify' ? 'Проверяем…' : 'Войти'}
+                </button>
+                <button className="textButton" type="button" onClick={() => void requestPhoneCode()} disabled={busy !== null}>Отправить код ещё раз</button>
+              </form>
+            )}
+          </div>
         </section>
       </main>
     );
@@ -445,7 +535,7 @@ export function ProviderConsole() {
         <a className="brand" href="/">QalaHub</a>
         <div className="topbarActions">
           <span>{dashboard.provider.user.name || 'Исполнитель'} · {dashboard.provider.city.name}</span>
-          <button className="textButton" type="button" onClick={forgetProfile}>Сменить профиль</button>
+          <button className="textButton" type="button" onClick={forgetProfile}>Выйти</button>
         </div>
       </nav>
 
@@ -482,36 +572,6 @@ export function ProviderConsole() {
               {dashboard.readiness.missing.map((code) => <span key={code}>{readinessLabels[code] ?? code}</span>)}
             </div>
           </div>
-
-          {!dashboard.provider.user.phoneVerifiedAt ? (
-            <div className="verificationNotice">
-              <strong>Подтвердите номер {dashboard.provider.user.phone}</strong>
-              <p>На номер придёт шестизначный код. После подтверждения система сама пересчитает готовность профиля.</p>
-              {!otpSent ? (
-                <button className="secondaryButton verificationButton" type="button" onClick={() => void requestPhoneCode()} disabled={busy !== null}>
-                  {busy === 'otp-request' ? 'Отправляем код…' : 'Получить код по SMS'}
-                </button>
-              ) : (
-                <form className="otpForm" onSubmit={verifyPhoneCode}>
-                  <input
-                    value={otpCode}
-                    onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="000000"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9]{6}"
-                    maxLength={6}
-                    required
-                    aria-label="Код подтверждения"
-                  />
-                  <button className="primaryButton" type="submit" disabled={busy !== null || otpCode.length !== 6}>
-                    {busy === 'otp-verify' ? 'Проверяем…' : 'Подтвердить'}
-                  </button>
-                  <button className="textButton" type="button" onClick={() => void requestPhoneCode()} disabled={busy !== null}>Отправить ещё раз</button>
-                </form>
-              )}
-            </div>
-          ) : null}
 
           <form onSubmit={saveProfile}>
             <div className="formGrid twoColumns">
