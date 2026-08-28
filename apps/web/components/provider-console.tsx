@@ -83,6 +83,8 @@ export function ProviderConsole() {
   const [radius, setRadius] = useState('10');
   const [prices, setPrices] = useState<PriceDraft>({});
   const [dispatchDrafts, setDispatchDrafts] = useState<DispatchDraft>({});
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -188,10 +190,76 @@ export function ProviderConsole() {
       if (!response.ok) throw new Error(body?.message ?? 'Не удалось начать регистрацию');
       localStorage.setItem('qalahub:provider:id', body.providerId);
       setProviderId(body.providerId);
-      setNotice('Профиль создан. Заполните услуги и рабочий радиус.');
+      setNotice('Профиль создан. Подтвердите телефон и заполните услуги.');
       await loadDashboard(body.providerId);
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : 'Не удалось начать регистрацию');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function requestPhoneCode() {
+    if (!providerId) return;
+    setBusy('otp-request');
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(`${apiBase}/providers/${providerId}/phone-verification/request`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      const text = await response.text();
+      const body = text ? JSON.parse(text) : null;
+      if (!response.ok) {
+        const retry = body?.retryAfterSeconds ? ` Повторите через ${body.retryAfterSeconds} сек.` : '';
+        throw new Error(`${body?.message ?? 'Не удалось отправить код.'}${retry}`);
+      }
+      if (body.alreadyVerified) {
+        setNotice('Номер телефона уже подтверждён.');
+        await loadDashboard(providerId);
+        return;
+      }
+      setOtpSent(true);
+      setOtpCode('');
+      setNotice(
+        body.devCode
+          ? `Код отправлен. Режим разработки: код ${body.devCode}.`
+          : 'Код подтверждения отправлен по SMS. Он действует 10 минут.',
+      );
+    } catch (otpError) {
+      setError(otpError instanceof Error ? otpError.message : 'Не удалось отправить код');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function verifyPhoneCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!providerId) return;
+    setBusy('otp-verify');
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(`${apiBase}/providers/${providerId}/phone-verification/verify`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: otpCode.trim() }),
+      });
+      const text = await response.text();
+      const body = text ? JSON.parse(text) : null;
+      if (!response.ok) throw new Error(body?.message ?? 'Неверный код подтверждения');
+      setOtpSent(false);
+      setOtpCode('');
+      setNotice(
+        body.readiness?.ready
+          ? 'Телефон подтверждён. Профиль активирован автоматически.'
+          : 'Телефон подтверждён. Завершите оставшиеся поля профиля.',
+      );
+      await loadDashboard(providerId);
+    } catch (otpError) {
+      setError(otpError instanceof Error ? otpError.message : 'Не удалось подтвердить телефон');
     } finally {
       setBusy(null);
     }
@@ -331,6 +399,8 @@ export function ProviderConsole() {
     localStorage.removeItem('qalahub:provider:id');
     setProviderId(null);
     setDashboard(null);
+    setOtpCode('');
+    setOtpSent(false);
     setNotice('Локальная привязка профиля удалена с этого браузера.');
   }
 
@@ -415,8 +485,31 @@ export function ProviderConsole() {
 
           {!dashboard.provider.user.phoneVerifiedAt ? (
             <div className="verificationNotice">
-              <strong>Номер ещё не подтверждён</strong>
-              <p>Профиль и услуги можно заполнить сейчас. Для выхода в ACTIVE требуется подтверждение номера через подключаемый SMS/auth-шлюз.</p>
+              <strong>Подтвердите номер {dashboard.provider.user.phone}</strong>
+              <p>На номер придёт шестизначный код. После подтверждения система сама пересчитает готовность профиля.</p>
+              {!otpSent ? (
+                <button className="secondaryButton verificationButton" type="button" onClick={() => void requestPhoneCode()} disabled={busy !== null}>
+                  {busy === 'otp-request' ? 'Отправляем код…' : 'Получить код по SMS'}
+                </button>
+              ) : (
+                <form className="otpForm" onSubmit={verifyPhoneCode}>
+                  <input
+                    value={otpCode}
+                    onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    required
+                    aria-label="Код подтверждения"
+                  />
+                  <button className="primaryButton" type="submit" disabled={busy !== null || otpCode.length !== 6}>
+                    {busy === 'otp-verify' ? 'Проверяем…' : 'Подтвердить'}
+                  </button>
+                  <button className="textButton" type="button" onClick={() => void requestPhoneCode()} disabled={busy !== null}>Отправить ещё раз</button>
+                </form>
+              )}
             </div>
           ) : null}
 
