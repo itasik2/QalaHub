@@ -139,16 +139,71 @@ if (afterTimeout.exceptions?.length !== 0) {
   throw new Error(`Human exception appeared after successful match: ${JSON.stringify(afterTimeout.exceptions)}`);
 }
 
+const providerId = secondAttemptAfterTimeout.provider.id;
+const offline = await jsonFetch(`${apiBase}/providers/${providerId}/availability`, {
+  method: 'POST',
+  body: JSON.stringify({ status: 'OFFLINE' }),
+});
+if (offline.provider.availability !== 'OFFLINE' || offline.provider.availableUntil !== null) {
+  throw new Error('Provider OFFLINE self-service update failed');
+}
+
+const available = await jsonFetch(`${apiBase}/providers/${providerId}/availability`, {
+  method: 'POST',
+  body: JSON.stringify({ status: 'AVAILABLE', minutes: 30 }),
+});
+if (available.provider.availability !== 'AVAILABLE' || !available.provider.availableUntil) {
+  throw new Error('Provider AVAILABLE self-service update failed');
+}
+if (available.provider.consecutiveMisses !== 0) {
+  throw new Error('Provider reactivation must clear consecutive misses');
+}
+
+const selectedOffer = afterTimeout.offers[0];
+const providerJobsBeforeSelection = selectedOffer.provider.activeJobs;
+const selection = await jsonFetch(
+  `${apiBase}/requests/${created.requestId}/offers/${selectedOffer.id}/select`,
+  { method: 'POST', body: '{}' },
+);
+if (selection.status !== 'CONFIRMED' || selection.order.providerId !== selectedOffer.providerId) {
+  throw new Error(`Offer selection failed: ${JSON.stringify(selection)}`);
+}
+
+const confirmed = await jsonFetch(`${apiBase}/requests/${created.requestId}`);
+if (confirmed.status !== 'CONFIRMED' || !confirmed.order) {
+  throw new Error('Confirmed order is missing from request state');
+}
+if (confirmed.order.offerId !== selectedOffer.id || confirmed.order.providerId !== selectedOffer.providerId) {
+  throw new Error('Order does not reference selected offer/provider');
+}
+const finalSelectedOffer = confirmed.offers.find((offer) => offer.id === selectedOffer.id);
+if (finalSelectedOffer?.status !== 'SELECTED') {
+  throw new Error(`Selected offer has invalid status: ${finalSelectedOffer?.status}`);
+}
+if (finalSelectedOffer.provider.activeJobs !== providerJobsBeforeSelection + 1) {
+  throw new Error(
+    `Provider activeJobs was not incremented: before=${providerJobsBeforeSelection}, after=${finalSelectedOffer.provider.activeJobs}`,
+  );
+}
+if (!confirmed.events.some((event) => event.type === 'offer.selected')) {
+  throw new Error('Missing offer.selected event');
+}
+if (confirmed.exceptions?.length !== 0) {
+  throw new Error(`Human exception appeared after order confirmation: ${JSON.stringify(confirmed.exceptions)}`);
+}
+
 console.log('SMOKE_MATCHING_OK', {
-  requestId: afterTimeout.id,
-  status: afterTimeout.status,
-  offers: afterTimeout.offers.length,
-  dispatchAttempts: afterTimeout.dispatchAttempts.length,
-  cancelledDispatches: afterTimeout.dispatchAttempts.filter((attempt) => attempt.response === 'CANCELLED')
+  requestId: confirmed.id,
+  status: confirmed.status,
+  orderId: confirmed.order.id,
+  offers: confirmed.offers.length,
+  dispatchAttempts: confirmed.dispatchAttempts.length,
+  cancelledDispatches: confirmed.dispatchAttempts.filter((attempt) => attempt.response === 'CANCELLED')
     .length,
   redundantProviderMisses: secondAttemptAfterTimeout.provider.consecutiveMisses,
-  exceptions: afterTimeout.exceptions.length,
-  selectedProvider: afterTimeout.offers[0].provider.user.name,
-  amountKzt: afterTimeout.offers[0].amountKzt,
-  etaMinutes: afterTimeout.offers[0].etaMinutes,
+  availabilitySelfService: available.provider.availability,
+  exceptions: confirmed.exceptions.length,
+  selectedProvider: confirmed.order.provider.user.name,
+  amountKzt: confirmed.order.offer.amountKzt,
+  etaMinutes: confirmed.order.offer.etaMinutes,
 });
