@@ -11,9 +11,9 @@
     "packages/*"
   ],
   "scripts": {
-    "predev": "npm run build -w @qalahub/shared",
+    "predev": "npm run build -w @qalahub/shared && npm run prisma:generate -w @qalahub/db && npm run build -w @qalahub/db",
     "dev": "concurrently -n web,api,worker -c auto \"npm run dev -w @qalahub/web\" \"npm run dev -w @qalahub/api\" \"npm run dev -w @qalahub/worker\"",
-    "build": "npm run build -w @qalahub/shared && npm run prisma:generate -w @qalahub/db && npm run build -w @qalahub/api && npm run build -w @qalahub/worker && npm run build -w @qalahub/web",
+    "build": "npm run build -w @qalahub/shared && npm run prisma:generate -w @qalahub/db && npm run build -w @qalahub/db && npm run build -w @qalahub/api && npm run build -w @qalahub/worker && npm run build -w @qalahub/web",
     "test": "npm run build -w @qalahub/shared && npm run test -w @qalahub/shared",
     "db:generate": "npm run prisma:generate -w @qalahub/db",
     "db:migrate": "npm run prisma:migrate -w @qalahub/db",
