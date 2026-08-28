@@ -1,4 +1,5 @@
-import { Controller, Get, Module } from '@nestjs/common';
+import { Controller, Get, Module, ServiceUnavailableException } from '@nestjs/common';
+import { prisma } from '@qalahub/db';
 import { CatalogController } from './catalog.controller.js';
 import { InternalProviderVerificationController } from './internal-provider-verification.controller.js';
 import { MatchingController } from './matching.controller.js';
@@ -16,13 +17,30 @@ import { SupplyHealthController } from './supply-health.controller.js';
 
 @Controller('health')
 class HealthController {
+  constructor(private readonly matchingQueue: MatchingQueueService) {}
+
   @Get()
-  health() {
-    return {
-      ok: true,
-      service: 'qalahub-api',
-      automationFirst: true,
-    };
+  async health() {
+    try {
+      const [, redis] = await Promise.all([
+        prisma.$queryRaw`SELECT 1`,
+        this.matchingQueue.ping(),
+      ]);
+
+      if (redis !== 'PONG') throw new Error(`unexpected Redis response: ${redis}`);
+
+      return {
+        ok: true,
+        service: 'qalahub-api',
+        automationFirst: true,
+        dependencies: {
+          postgres: 'ready',
+          redis: 'ready',
+        },
+      };
+    } catch {
+      throw new ServiceUnavailableException('qalahub-api dependencies are not ready');
+    }
   }
 }
 
