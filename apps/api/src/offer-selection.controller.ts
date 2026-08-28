@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Controller, Param, Post } from '@nestjs/common';
+import { BadRequestException, ConflictException, Controller, Headers, Param, Post } from '@nestjs/common';
 import {
   AvailabilityStatus,
   CandidateStatus,
@@ -8,17 +8,23 @@ import {
   RequestStatus,
   prisma,
 } from '@qalahub/db';
+import { requireRequestAccess } from './request-access.js';
 import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
 @Controller('requests')
 export class OfferSelectionController {
   @Post(':requestId/offers/:offerId/select')
-  async select(@Param('requestId') requestId: string, @Param('offerId') offerId: string) {
+  async select(
+    @Param('requestId') requestId: string,
+    @Param('offerId') offerId: string,
+    @Headers('x-qalahub-request-token') accessToken?: string,
+  ) {
     const request = await prisma.request.findUnique({
       where: { id: requestId },
       include: { order: true },
     });
     if (!request) throw new BadRequestException('request not found');
+    requireRequestAccess(request.accessTokenHash, accessToken);
     if (request.order) throw new ConflictException('provider already selected for this request');
 
     const offer = await prisma.offer.findUnique({
