@@ -93,6 +93,12 @@ export class RequestsController {
           orderBy: [{ round: 'asc' }, { wave: 'asc' }, { sentAt: 'asc' }],
           include: { provider: { include: { user: true } } },
         },
+        order: {
+          include: {
+            offer: true,
+            provider: { include: { user: true } },
+          },
+        },
         events: { orderBy: { createdAt: 'asc' } },
         exceptions: { orderBy: { createdAt: 'asc' } },
       },
