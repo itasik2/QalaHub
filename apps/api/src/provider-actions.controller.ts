@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Headers, Param, Post } from '@nestjs/common';
 import {
   CandidateStatus,
   DispatchResponse,
@@ -7,6 +7,7 @@ import {
   prisma,
 } from '@qalahub/db';
 import { MatchingQueueService } from './matching-queue.service.js';
+import { requireProviderSession } from './provider-session.js';
 
 class RespondDto {
   response!: 'ACCEPTED' | 'DECLINED';
@@ -20,7 +21,11 @@ export class ProviderActionsController {
   constructor(private readonly matchingQueue: MatchingQueueService) {}
 
   @Post(':attemptId/respond')
-  async respond(@Param('attemptId') attemptId: string, @Body() body: RespondDto) {
+  async respond(
+    @Param('attemptId') attemptId: string,
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: RespondDto,
+  ) {
     if (!['ACCEPTED', 'DECLINED'].includes(body.response)) {
       throw new BadRequestException('response must be ACCEPTED or DECLINED');
     }
@@ -31,6 +36,8 @@ export class ProviderActionsController {
     });
 
     if (!attempt) throw new BadRequestException('dispatch attempt not found');
+    requireProviderSession(authorization, attempt.providerId);
+
     if (attempt.response) throw new ConflictException('dispatch attempt already answered');
     if (attempt.expiresAt.getTime() <= Date.now()) {
       throw new ConflictException('dispatch attempt expired');
