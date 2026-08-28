@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Param, Post } from '@nestjs/common';
 import { AvailabilityStatus, ProviderStatus, prisma } from '@qalahub/db';
+import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
 class AvailabilityDto {
   status!: 'AVAILABLE' | 'BUSY' | 'OFFLINE';
@@ -42,6 +43,8 @@ export class ProviderAvailabilityController {
       },
       include: { user: true },
     });
+
+    await reconcileSupplyNeedsByCityId(updated.cityId);
 
     return {
       ok: true,
