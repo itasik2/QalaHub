@@ -92,7 +92,7 @@ export function ProviderConsole() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const authorizationHeaders = useCallback((override?: string) => {
+  const authorizationHeaders = useCallback((override?: string): Record<string, string> => {
     const token = override ?? sessionToken ?? localStorage.getItem(providerSessionStorageKey);
     return token ? { authorization: `Bearer ${token}` } : {};
   }, [sessionToken]);
