@@ -68,6 +68,7 @@ enum DispatchResponse {
   ACCEPTED
   DECLINED
   TIMED_OUT
+  CANCELLED
 }
 
 enum OfferStatus {
