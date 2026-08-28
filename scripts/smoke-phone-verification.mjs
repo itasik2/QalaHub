@@ -61,14 +61,30 @@ const verified = await jsonFetch(
 if (!verified.phoneVerified) {
   throw new Error(`Phone was not verified: ${JSON.stringify(verified)}`);
 }
+if (!verified.sessionToken) {
+  throw new Error(`OTP did not issue provider session: ${JSON.stringify(verified)}`);
+}
 if (verified.readiness?.status !== 'VERIFIED' || verified.readiness?.ready) {
   throw new Error(`Unexpected readiness immediately after OTP: ${JSON.stringify(verified.readiness)}`);
+}
+
+const auth = { authorization: `Bearer ${verified.sessionToken}` };
+
+let unauthenticatedDashboardRejected = false;
+try {
+  await jsonFetch(`${apiBase}/providers/${onboarding.providerId}/dashboard`);
+} catch (error) {
+  unauthenticatedDashboardRejected = /401|provider session is required/i.test(String(error));
+}
+if (!unauthenticatedDashboardRejected) {
+  throw new Error('Provider dashboard did not require an authenticated session');
 }
 
 const profiled = await jsonFetch(
   `${apiBase}/providers/${onboarding.providerId}/onboarding/profile`,
   {
     method: 'PUT',
+    headers: auth,
     body: JSON.stringify({
       citySlug: 'pavlodar',
       latitude: 52.287,
@@ -90,7 +106,10 @@ if (!profiled.readiness.ready || profiled.readiness.status !== 'ACTIVE') {
   throw new Error(`OTP provider did not auto-activate after complete profile: ${JSON.stringify(profiled.readiness)}`);
 }
 
-const dashboard = await jsonFetch(`${apiBase}/providers/${onboarding.providerId}/dashboard`);
+const dashboard = await jsonFetch(
+  `${apiBase}/providers/${onboarding.providerId}/dashboard`,
+  { headers: auth },
+);
 if (!dashboard.provider.user.phoneVerifiedAt) {
   throw new Error('Dashboard does not reflect phone verification');
 }
@@ -102,6 +121,8 @@ console.log('SMOKE_PHONE_VERIFICATION_OK', {
   providerId: onboarding.providerId,
   delivery: requested.delivery.provider,
   invalidCodeRejected: invalidRejected,
+  unauthenticatedDashboardRejected,
+  sessionIssued: true,
   status: dashboard.provider.status,
   phoneVerified: Boolean(dashboard.provider.user.phoneVerifiedAt),
 });
