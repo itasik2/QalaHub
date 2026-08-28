@@ -3,6 +3,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  Headers,
   Param,
   Post,
 } from '@nestjs/common';
@@ -16,30 +17,29 @@ import {
   RequestStatus,
   prisma,
 } from '@qalahub/db';
+import { requireRequestAccess } from './request-access.js';
 import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
 class CancelRequestDto {
-  customerPhone!: string;
   reason?: string;
 }
 
 @Controller('requests')
 export class RequestCancellationController {
   @Post(':requestId/cancel')
-  async cancel(@Param('requestId') requestId: string, @Body() body: CancelRequestDto) {
-    if (!body.customerPhone) throw new BadRequestException('customerPhone is required');
-
+  async cancel(
+    @Param('requestId') requestId: string,
+    @Headers('x-qalahub-request-token') accessToken: string | undefined,
+    @Body() body: CancelRequestDto,
+  ) {
     const request = await prisma.request.findUnique({
       where: { id: requestId },
       include: {
-        customer: true,
         order: { include: { provider: true } },
       },
     });
     if (!request) throw new BadRequestException('request not found');
-    if (request.customer.phone !== body.customerPhone) {
-      throw new BadRequestException('request does not belong to customer');
-    }
+    requireRequestAccess(request.accessTokenHash, accessToken);
 
     if (request.status === RequestStatus.CANCELLED) {
       return {
