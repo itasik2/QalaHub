@@ -194,6 +194,51 @@ if (confirmed.exceptions?.length !== 0) {
   throw new Error(`Human exception appeared after order confirmation: ${JSON.stringify(confirmed.exceptions)}`);
 }
 
+const started = await jsonFetch(
+  `${apiBase}/providers/${selectedOffer.providerId}/orders/${selection.order.id}/start`,
+  { method: 'POST', body: '{}' },
+);
+if (started.status !== 'IN_PROGRESS' || started.order.status !== 'IN_PROGRESS') {
+  throw new Error(`Order start failed: ${JSON.stringify(started)}`);
+}
+
+const inProgress = await jsonFetch(`${apiBase}/requests/${created.requestId}`);
+if (inProgress.status !== 'IN_PROGRESS' || inProgress.order?.status !== 'IN_PROGRESS') {
+  throw new Error('Request/order did not enter IN_PROGRESS together');
+}
+if (!inProgress.events.some((event) => event.type === 'order.started')) {
+  throw new Error('Missing order.started event');
+}
+
+const completedAction = await jsonFetch(
+  `${apiBase}/providers/${selectedOffer.providerId}/orders/${selection.order.id}/complete`,
+  { method: 'POST', body: '{}' },
+);
+if (completedAction.status !== 'COMPLETED' || completedAction.order.status !== 'COMPLETED') {
+  throw new Error(`Order completion failed: ${JSON.stringify(completedAction)}`);
+}
+if (completedAction.provider.activeJobs !== providerJobsBeforeSelection) {
+  throw new Error(
+    `Provider activeJobs did not return to baseline: before=${providerJobsBeforeSelection}, after=${completedAction.provider.activeJobs}`,
+  );
+}
+if (completedAction.provider.availability !== 'AVAILABLE') {
+  throw new Error(
+    `Provider should resume AVAILABLE inside availability window, got ${completedAction.provider.availability}`,
+  );
+}
+
+const completed = await jsonFetch(`${apiBase}/requests/${created.requestId}`);
+if (completed.status !== 'COMPLETED' || completed.order?.status !== 'COMPLETED') {
+  throw new Error('Request/order did not enter COMPLETED together');
+}
+if (!completed.events.some((event) => event.type === 'order.completed')) {
+  throw new Error('Missing order.completed event');
+}
+if (completed.exceptions?.length !== 0) {
+  throw new Error(`Human exception appeared after completed order: ${JSON.stringify(completed.exceptions)}`);
+}
+
 const onboarding = await jsonFetch(`${apiBase}/providers/onboarding/start`, {
   method: 'POST',
   body: JSON.stringify({
@@ -284,8 +329,8 @@ const supplyHealth = await waitFor('supply health metrics', async () => {
 
 const plumbingHealth = supplyHealth.categories.find((item) => item.category.slug === 'plumbing');
 const electricalHealth = supplyHealth.categories.find((item) => item.category.slug === 'electrical');
-if (!plumbingHealth || plumbingHealth.supply.availableNow < 4) {
-  throw new Error(`Plumbing supply did not include onboarded provider: ${JSON.stringify(plumbingHealth)}`);
+if (!plumbingHealth || plumbingHealth.supply.availableNow < 5) {
+  throw new Error(`Plumbing supply did not restore completed provider: ${JSON.stringify(plumbingHealth)}`);
 }
 if (!electricalHealth || !['NEED_PROVIDERS', 'CRITICAL'].includes(electricalHealth.health)) {
   throw new Error(`Thin electrical supply was not detected: ${JSON.stringify(electricalHealth)}`);
@@ -308,20 +353,22 @@ if (electricalNeed.priorityScore <= 0 || electricalNeed.supplyGap <= 0) {
 }
 
 console.log('SMOKE_MATCHING_OK', {
-  requestId: confirmed.id,
-  status: confirmed.status,
-  orderId: confirmed.order.id,
-  offers: confirmed.offers.length,
-  dispatchAttempts: confirmed.dispatchAttempts.length,
-  cancelledDispatches: confirmed.dispatchAttempts.filter((attempt) => attempt.response === 'CANCELLED')
+  requestId: completed.id,
+  status: completed.status,
+  orderId: completed.order.id,
+  orderStatus: completed.order.status,
+  offers: completed.offers.length,
+  dispatchAttempts: completed.dispatchAttempts.length,
+  cancelledDispatches: completed.dispatchAttempts.filter((attempt) => attempt.response === 'CANCELLED')
     .length,
   redundantProviderMisses: secondAttemptAfterTimeout.provider.consecutiveMisses,
   availabilitySelfService: available.provider.availability,
   selectedProviderAvailability: finalSelectedOffer.provider.availability,
-  exceptions: confirmed.exceptions.length,
-  selectedProvider: confirmed.order.provider.user.name,
-  amountKzt: confirmed.order.offer.amountKzt,
-  etaMinutes: confirmed.order.offer.etaMinutes,
+  providerAvailabilityAfterCompletion: completedAction.provider.availability,
+  exceptions: completed.exceptions.length,
+  selectedProvider: completed.order.provider.user.name,
+  amountKzt: completed.order.offer.amountKzt,
+  etaMinutes: completed.order.offer.etaMinutes,
   onboarding: {
     providerId: onboarding.providerId,
     status: profiled.readiness.status,
