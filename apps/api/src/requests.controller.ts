@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { prisma, RequestUrgency } from '@qalahub/db';
 import { MatchingQueueService } from './matching-queue.service.js';
+import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
 class CreateRequestDto {
   customerPhone!: string;
@@ -70,7 +71,10 @@ export class RequestsController {
       },
     });
 
-    await this.matchingQueue.start(request.id);
+    await Promise.all([
+      this.matchingQueue.start(request.id),
+      reconcileSupplyNeedsByCityId(city.id),
+    ]);
 
     return {
       ok: true,
