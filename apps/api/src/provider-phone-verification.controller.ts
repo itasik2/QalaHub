@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { ProviderStatus, prisma } from '@qalahub/db';
+import { assertOtpSendAllowed } from './otp-rate-limit.js';
 import { syncProviderReadiness } from './provider-readiness.js';
 import { createProviderSession } from './provider-session.js';
 import { sendSms } from './sms.service.js';
@@ -67,6 +68,8 @@ export class ProviderPhoneVerificationController {
         429,
       );
     }
+
+    await assertOtpSendAllowed(provider.user.phone);
 
     const code = String(randomInt(100000, 1000000));
     const codeHash = hashCode(provider.user.phone, code);
