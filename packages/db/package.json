@@ -9,6 +9,9 @@
   "scripts": {
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:seed": "prisma db seed",
+    "prisma:init-sql": "prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script",
     "prisma:studio": "prisma studio"
   },
   "dependencies": {
@@ -20,6 +23,7 @@
   "devDependencies": {
     "@types/pg": "^8.15.0",
     "prisma": "^7.10.0",
+    "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }
 }
