@@ -73,10 +73,25 @@ const created = await jsonFetch(`${apiBase}/requests`, {
   }),
 });
 
-if (!created?.requestId) throw new Error('Request was not created');
+if (!created?.requestId || !created?.accessToken) {
+  throw new Error(`Request/access token was not created: ${JSON.stringify(created)}`);
+}
+const requestAccessHeaders = { 'x-qalahub-request-token': created.accessToken };
+
+let unauthenticatedRequestRejected = false;
+try {
+  await jsonFetch(`${apiBase}/requests/${created.requestId}`);
+} catch (error) {
+  unauthenticatedRequestRejected = /401|request access token is required/i.test(String(error));
+}
+if (!unauthenticatedRequestRejected) {
+  throw new Error('Request state did not require customer access token');
+}
 
 const dispatched = await waitFor('first dispatch wave', async () => {
-  const request = await jsonFetch(`${apiBase}/requests/${created.requestId}`);
+  const request = await jsonFetch(`${apiBase}/requests/${created.requestId}`, {
+    headers: requestAccessHeaders,
+  });
   return request.dispatchAttempts?.length >= 2 ? request : null;
 });
 
@@ -102,7 +117,9 @@ await jsonFetch(`${apiBase}/provider-dispatch/${firstAttempt.id}/respond`, {
 });
 
 const matched = await waitFor('accepted offer and redundant dispatch cancellation', async () => {
-  const request = await jsonFetch(`${apiBase}/requests/${created.requestId}`);
+  const request = await jsonFetch(`${apiBase}/requests/${created.requestId}`, {
+    headers: requestAccessHeaders,
+  });
   const secondAttempt = request.dispatchAttempts?.find(
     (attempt) => attempt.id === secondAttemptBeforeMatch.id,
   );
@@ -137,7 +154,9 @@ for (const required of [
 }
 
 await sleep(6000);
-const afterTimeout = await jsonFetch(`${apiBase}/requests/${created.requestId}`);
+const afterTimeout = await jsonFetch(`${apiBase}/requests/${created.requestId}`, {
+  headers: requestAccessHeaders,
+});
 const secondAttemptAfterTimeout = afterTimeout.dispatchAttempts.find(
   (attempt) => attempt.id === secondAttemptBeforeMatch.id,
 );
@@ -183,13 +202,19 @@ const selectedOffer = afterTimeout.offers[0];
 const providerJobsBeforeSelection = selectedOffer.provider.activeJobs;
 const selection = await jsonFetch(
   `${apiBase}/requests/${created.requestId}/offers/${selectedOffer.id}/select`,
-  { method: 'POST', body: '{}' },
+  {
+    method: 'POST',
+    headers: requestAccessHeaders,
+    body: '{}',
+  },
 );
 if (selection.status !== 'CONFIRMED' || selection.order.providerId !== selectedOffer.providerId) {
   throw new Error(`Offer selection failed: ${JSON.stringify(selection)}`);
 }
 
-const confirmed = await jsonFetch(`${apiBase}/requests/${created.requestId}`);
+const confirmed = await jsonFetch(`${apiBase}/requests/${created.requestId}`, {
+  headers: requestAccessHeaders,
+});
 if (confirmed.status !== 'CONFIRMED' || !confirmed.order) {
   throw new Error('Confirmed order is missing from request state');
 }
@@ -227,7 +252,9 @@ if (started.status !== 'IN_PROGRESS' || started.order.status !== 'IN_PROGRESS') 
   throw new Error(`Order start failed: ${JSON.stringify(started)}`);
 }
 
-const inProgress = await jsonFetch(`${apiBase}/requests/${created.requestId}`);
+const inProgress = await jsonFetch(`${apiBase}/requests/${created.requestId}`, {
+  headers: requestAccessHeaders,
+});
 if (inProgress.status !== 'IN_PROGRESS' || inProgress.order?.status !== 'IN_PROGRESS') {
   throw new Error('Request/order did not enter IN_PROGRESS together');
 }
@@ -257,7 +284,9 @@ if (completedAction.provider.availability !== 'AVAILABLE') {
   );
 }
 
-const completed = await jsonFetch(`${apiBase}/requests/${created.requestId}`);
+const completed = await jsonFetch(`${apiBase}/requests/${created.requestId}`, {
+  headers: requestAccessHeaders,
+});
 if (completed.status !== 'COMPLETED' || completed.order?.status !== 'COMPLETED') {
   throw new Error('Request/order did not enter COMPLETED together');
 }
@@ -347,7 +376,9 @@ const electricalDemand = await jsonFetch(`${apiBase}/requests`, {
     maxDistanceKm: 10,
   }),
 });
-if (!electricalDemand.requestId) throw new Error('Electrical demand request was not created');
+if (!electricalDemand.requestId || !electricalDemand.accessToken) {
+  throw new Error('Electrical demand request was not created with access token');
+}
 
 const supplyHealth = await waitFor('supply health metrics', async () => {
   const health = await jsonFetch(`${apiBase}/supply-health/pavlodar`);
@@ -392,6 +423,7 @@ console.log('SMOKE_MATCHING_OK', {
   dispatchAttempts: completed.dispatchAttempts.length,
   cancelledDispatches: completed.dispatchAttempts.filter((attempt) => attempt.response === 'CANCELLED')
     .length,
+  unauthenticatedRequestRejected,
   redundantProviderMisses: secondAttemptAfterTimeout.provider.consecutiveMisses,
   availabilitySelfService: available.provider.availability,
   selectedProviderAvailability: finalSelectedOffer.provider.availability,
