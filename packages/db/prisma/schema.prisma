@@ -162,9 +162,9 @@ model Provider {
   reliabilityScore       Float              @default(0.5)
   activeJobs             Int                @default(0)
   consecutiveMisses      Int                @default(0)
-  lastAvailabilityChange DateTime            @default(now())
-  createdAt              DateTime            @default(now())
-  updatedAt              DateTime            @updatedAt
+  lastAvailabilityChange DateTime           @default(now())
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
 
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   city             City              @relation(fields: [cityId], references: [id])
@@ -206,6 +206,7 @@ model Request {
   latitude                 Float?
   longitude                Float?
   maxDistanceKm            Float          @default(10)
+  matchingRound            Int            @default(0)
   matchingWave             Int            @default(0)
   searchExpansionAttempted Boolean        @default(false)
   firstOfferAt             DateTime?
@@ -247,22 +248,23 @@ model MatchCandidate {
 }
 
 model DispatchAttempt {
-  id         String            @id @default(cuid())
-  requestId  String
-  providerId String
-  wave       Int
-  sentAt     DateTime          @default(now())
-  expiresAt  DateTime
-  viewedAt   DateTime?
+  id          String            @id @default(cuid())
+  requestId   String
+  providerId  String
+  round       Int               @default(0)
+  wave        Int
+  sentAt      DateTime          @default(now())
+  expiresAt   DateTime
+  viewedAt    DateTime?
   respondedAt DateTime?
-  response   DispatchResponse?
-  createdAt  DateTime          @default(now())
+  response    DispatchResponse?
+  createdAt   DateTime          @default(now())
 
   request  Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
 
   @@unique([requestId, providerId])
-  @@index([requestId, wave])
+  @@index([requestId, round, wave])
   @@index([expiresAt, response])
 }
 
@@ -318,13 +320,13 @@ model RequestEvent {
 }
 
 model AutomationException {
-  id          String          @id @default(cuid())
-  requestId   String
-  code        String
-  status      ExceptionStatus @default(OPEN)
-  details     Json?
-  createdAt   DateTime        @default(now())
-  resolvedAt  DateTime?
+  id         String          @id @default(cuid())
+  requestId  String
+  code       String
+  status     ExceptionStatus @default(OPEN)
+  details    Json?
+  createdAt  DateTime        @default(now())
+  resolvedAt DateTime?
 
   request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
