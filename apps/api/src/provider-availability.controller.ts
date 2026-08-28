@@ -1,5 +1,6 @@
-import { BadRequestException, Body, Controller, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Headers, Param, Post } from '@nestjs/common';
 import { AvailabilityStatus, ProviderStatus, prisma } from '@qalahub/db';
+import { requireProviderSession } from './provider-session.js';
 import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
 class AvailabilityDto {
@@ -10,7 +11,13 @@ class AvailabilityDto {
 @Controller('providers')
 export class ProviderAvailabilityController {
   @Post(':providerId/availability')
-  async setAvailability(@Param('providerId') providerId: string, @Body() body: AvailabilityDto) {
+  async setAvailability(
+    @Param('providerId') providerId: string,
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: AvailabilityDto,
+  ) {
+    requireProviderSession(authorization, providerId);
+
     if (!['AVAILABLE', 'BUSY', 'OFFLINE'].includes(body.status)) {
       throw new BadRequestException('status must be AVAILABLE, BUSY or OFFLINE');
     }
