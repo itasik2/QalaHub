@@ -74,13 +74,7 @@ export class ProviderOnboardingController {
 
     const result = await prisma.$transaction(async (tx) => {
       const user = existingUser
-        ? await tx.user.update({
-            where: { id: existingUser.id },
-            data: {
-              name,
-              ...(existingUser.role === UserRole.CUSTOMER ? { role: UserRole.PROVIDER } : {}),
-            },
-          })
+        ? existingUser
         : await tx.user.create({
             data: { phone, name, role: UserRole.PROVIDER },
           });
