@@ -1,0 +1,1 @@
+ALTER TYPE "DispatchResponse" ADD VALUE 'CANCELLED';
