@@ -10,15 +10,15 @@ The core product is not a directory. It is an automated pipeline:
 
 Human operators are an exception path, not part of the normal order flow. Matching, provider availability, dispatch waves, timeouts, retries, reliability scoring and escalation are designed to run automatically.
 
-## Planned architecture
+## Architecture
 
 - `apps/web` — Next.js customer/provider/admin UI
-- `apps/api` — NestJS HTTP/realtime API
+- `apps/api` — NestJS HTTP API
 - `apps/worker` — BullMQ background matching/dispatch worker
 - `packages/db` — Prisma/PostgreSQL schema and client
 - `packages/shared` — shared domain types and matching rules
 - PostgreSQL — source of truth
-- Redis — queues, locks and transient availability state
+- Redis — queues, OTP rate limiting and transient automation state
 
 ## First milestone
 
@@ -33,3 +33,9 @@ A test request for a plumber should automatically:
 7. stop dispatching after enough accepted offers are received.
 
 No dispatcher should be required for the normal path.
+
+## Production
+
+The pilot deployment uses Vercel for `apps/web` and Railway for the NestJS API, BullMQ worker, PostgreSQL and Redis.
+
+See [`docs/production-deployment.md`](docs/production-deployment.md) for the required deployment order, service commands, environment variables, health check, database migration policy, Mobizon setup and production smoke checklist.
