@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Controller,
+  Headers,
   Param,
   Post,
 } from '@nestjs/common';
@@ -12,6 +13,7 @@ import {
   RequestStatus,
   prisma,
 } from '@qalahub/db';
+import { requireProviderSession } from './provider-session.js';
 import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
 @Controller('providers')
@@ -20,7 +22,10 @@ export class OrderLifecycleController {
   async start(
     @Param('providerId') providerId: string,
     @Param('orderId') orderId: string,
+    @Headers('authorization') authorization?: string,
   ) {
+    requireProviderSession(authorization, providerId);
+
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new BadRequestException('order not found');
     if (order.providerId !== providerId) {
@@ -63,7 +68,10 @@ export class OrderLifecycleController {
   async complete(
     @Param('providerId') providerId: string,
     @Param('orderId') orderId: string,
+    @Headers('authorization') authorization?: string,
   ) {
+    requireProviderSession(authorization, providerId);
+
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: { provider: true },
