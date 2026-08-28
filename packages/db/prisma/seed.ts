@@ -17,10 +17,20 @@ async function seedProvider(input: {
   longitude: number;
 }) {
   const phone = `+7700000${String(input.index).padStart(4, '0')}`;
+  const verifiedAt = new Date();
   const user = await prisma.user.upsert({
     where: { phone },
-    update: { name: `Тестовый исполнитель ${input.index}`, role: UserRole.PROVIDER },
-    create: { phone, name: `Тестовый исполнитель ${input.index}`, role: UserRole.PROVIDER },
+    update: {
+      name: `Тестовый исполнитель ${input.index}`,
+      role: UserRole.PROVIDER,
+      phoneVerifiedAt: verifiedAt,
+    },
+    create: {
+      phone,
+      name: `Тестовый исполнитель ${input.index}`,
+      role: UserRole.PROVIDER,
+      phoneVerifiedAt: verifiedAt,
+    },
   });
 
   const provider = await prisma.provider.upsert({
@@ -30,6 +40,7 @@ async function seedProvider(input: {
       status: ProviderStatus.ACTIVE,
       availability: input.available ? AvailabilityStatus.AVAILABLE : AvailabilityStatus.OFFLINE,
       availableUntil: input.available ? new Date(Date.now() + 8 * 60 * 60 * 1000) : null,
+      onboardingCompletedAt: verifiedAt,
       latitude: input.latitude,
       longitude: input.longitude,
       serviceRadiusKm: 15,
@@ -45,6 +56,7 @@ async function seedProvider(input: {
       status: ProviderStatus.ACTIVE,
       availability: input.available ? AvailabilityStatus.AVAILABLE : AvailabilityStatus.OFFLINE,
       availableUntil: input.available ? new Date(Date.now() + 8 * 60 * 60 * 1000) : null,
+      onboardingCompletedAt: verifiedAt,
       latitude: input.latitude,
       longitude: input.longitude,
       serviceRadiusKm: 15,
@@ -74,8 +86,13 @@ async function main() {
 
   const customer = await prisma.user.upsert({
     where: { phone: '+77000009999' },
-    update: { name: 'Тестовый заказчик', role: UserRole.CUSTOMER },
-    create: { phone: '+77000009999', name: 'Тестовый заказчик', role: UserRole.CUSTOMER },
+    update: { name: 'Тестовый заказчик', role: UserRole.CUSTOMER, phoneVerifiedAt: new Date() },
+    create: {
+      phone: '+77000009999',
+      name: 'Тестовый заказчик',
+      role: UserRole.CUSTOMER,
+      phoneVerifiedAt: new Date(),
+    },
   });
 
   let providerIndex = 1;
@@ -113,6 +130,7 @@ async function main() {
     providers: providerIndex - 1,
     plumbingProviders: 10,
     plumbingAvailable: 4,
+    providerOnboardingConsistent: true,
   });
 }
 
