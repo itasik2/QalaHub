@@ -11,12 +11,15 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "predev": "npm run build -w @qalahub/shared",
+    "dev": "concurrently -n web,api,worker -c auto \"npm run dev -w @qalahub/web\" \"npm run dev -w @qalahub/api\" \"npm run dev -w @qalahub/worker\"",
+    "build": "npm run build -w @qalahub/shared && npm run prisma:generate -w @qalahub/db && npm run build -w @qalahub/api && npm run build -w @qalahub/worker && npm run build -w @qalahub/web",
+    "test": "npm run build -w @qalahub/shared && npm run test -w @qalahub/shared",
     "db:generate": "npm run prisma:generate -w @qalahub/db",
     "db:migrate": "npm run prisma:migrate -w @qalahub/db",
     "db:studio": "npm run prisma:studio -w @qalahub/db"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }
