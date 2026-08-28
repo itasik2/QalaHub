@@ -1,56 +1,33 @@
-import { Body, Controller, OnModuleDestroy, Post } from '@nestjs/common';
-import { Queue } from 'bullmq';
-import { Redis } from 'ioredis';
-import type { ProviderCandidate } from '@qalahub/shared';
+import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
+import { prisma } from '@qalahub/db';
+import { MatchingQueueService } from './matching-queue.service';
 
 class StartMatchingDto {
   requestId!: string;
-  candidates!: ProviderCandidate[];
 }
 
 @Controller('matching')
-export class MatchingController implements OnModuleDestroy {
-  private readonly connection = new Redis(
-    process.env.REDIS_URL ?? 'redis://localhost:6379',
-    { maxRetriesPerRequest: null },
-  );
-
-  private readonly queue = new Queue('matching', {
-    connection: this.connection,
-  });
+export class MatchingController {
+  constructor(private readonly matchingQueue: MatchingQueueService) {}
 
   @Post('start')
   async start(@Body() body: StartMatchingDto) {
-    if (!body.requestId || !Array.isArray(body.candidates)) {
-      return {
-        ok: false,
-        error: 'requestId and candidates are required',
-      };
+    if (!body.requestId) {
+      throw new BadRequestException('requestId is required');
     }
 
-    await this.queue.add(
-      'start',
-      {
-        requestId: body.requestId,
-        candidates: body.candidates,
-      },
-      {
-        jobId: `${body.requestId}:start`,
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
-      },
-    );
+    const request = await prisma.request.findUnique({ where: { id: body.requestId } });
+    if (!request) {
+      throw new BadRequestException('request not found');
+    }
+
+    await this.matchingQueue.start(request.id);
 
     return {
       ok: true,
-      requestId: body.requestId,
+      requestId: request.id,
       state: 'MATCHING_QUEUED',
       automation: true,
     };
-  }
-
-  async onModuleDestroy() {
-    await this.queue.close();
-    await this.connection.quit();
   }
 }
