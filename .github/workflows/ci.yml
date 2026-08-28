@@ -52,6 +52,22 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Build workspaces
         run: npm run build
+      - name: Production environment preflight
+        shell: bash
+        run: |
+          DATABASE_URL="$DATABASE_URL" \
+          REDIS_URL="$REDIS_URL" \
+          WEB_ORIGINS="https://qalahub.example" \
+          INTERNAL_API_TOKEN="ci-internal-token-0123456789abcdef" \
+          PHONE_VERIFICATION_SECRET="ci-phone-secret-0123456789abcdefg" \
+          PROVIDER_SESSION_SECRET="ci-session-secret-0123456789abcdef" \
+          SMS_PROVIDER="mobizon" \
+          MOBIZON_API_KEY="ci-mobizon-key" \
+          node scripts/validate-production-env.mjs api
+
+          DATABASE_URL="$DATABASE_URL" \
+          REDIS_URL="$REDIS_URL" \
+          node scripts/validate-production-env.mjs worker
       - name: Apply migrations
         run: npm run db:deploy
       - name: Seed Pavlodar pilot data
