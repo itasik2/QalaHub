@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { Job, Queue, Worker } from 'bullmq';
-import IORedis from 'ioredis';
+import { Redis } from 'ioredis';
 import {
   buildDispatchWaves,
   decideNextMatchingAction,
@@ -9,7 +9,7 @@ import {
 } from '@qalahub/shared';
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
-const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
 const queue = new Queue('matching', { connection });
 
 const config: MatchingConfig = {
