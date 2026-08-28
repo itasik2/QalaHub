@@ -8,7 +8,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
-import { ProviderStatus, prisma } from '@qalahub/db';
+import { ProviderStatus, UserRole, prisma } from '@qalahub/db';
 import { assertOtpSendAllowed } from './otp-rate-limit.js';
 import { syncProviderReadiness } from './provider-readiness.js';
 import { createProviderSession } from './provider-session.js';
@@ -168,7 +168,10 @@ export class ProviderPhoneVerificationController {
     await prisma.$transaction([
       prisma.user.update({
         where: { id: provider.userId },
-        data: { phoneVerifiedAt: provider.user.phoneVerifiedAt ?? now },
+        data: {
+          phoneVerifiedAt: provider.user.phoneVerifiedAt ?? now,
+          role: UserRole.PROVIDER,
+        },
       }),
       prisma.phoneVerificationChallenge.delete({ where: { id: challenge.id } }),
     ]);
