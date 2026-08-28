@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
 import { prisma, RequestUrgency, UserRole } from '@qalahub/db';
 import { MatchingQueueService } from './matching-queue.service.js';
+import { createRequestAccessToken, requireRequestAccess } from './request-access.js';
 import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
 class CreateRequestDto {
@@ -54,6 +55,7 @@ export class RequestsController {
       throw new BadRequestException('service not found or inactive');
     }
 
+    const access = createRequestAccessToken();
     const request = await prisma.request.create({
       data: {
         customerId: customer.id,
@@ -66,6 +68,7 @@ export class RequestsController {
         latitude: body.latitude,
         longitude: body.longitude,
         maxDistanceKm: Math.max(1, Math.min(body.maxDistanceKm ?? 10, 50)),
+        accessTokenHash: access.hash,
         events: {
           create: {
             type: 'request.created',
@@ -87,13 +90,17 @@ export class RequestsController {
     return {
       ok: true,
       requestId: request.id,
+      accessToken: access.token,
       status: request.status,
       matching: 'QUEUED',
     };
   }
 
   @Get(':id')
-  async get(@Param('id') id: string) {
+  async get(
+    @Param('id') id: string,
+    @Headers('x-qalahub-request-token') accessToken?: string,
+  ) {
     const request = await prisma.request.findUnique({
       where: { id },
       include: {
@@ -117,6 +124,9 @@ export class RequestsController {
     });
 
     if (!request) throw new BadRequestException('request not found');
-    return request;
+    requireRequestAccess(request.accessTokenHash, accessToken);
+
+    const { accessTokenHash: _accessTokenHash, ...publicRequest } = request;
+    return publicRequest;
   }
 }
