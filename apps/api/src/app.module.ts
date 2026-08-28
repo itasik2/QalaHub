@@ -1,4 +1,5 @@
 import { Controller, Get, Module } from '@nestjs/common';
+import { CatalogController } from './catalog.controller.js';
 import { InternalProviderVerificationController } from './internal-provider-verification.controller.js';
 import { MatchingController } from './matching.controller.js';
 import { MatchingQueueService } from './matching-queue.service.js';
@@ -26,6 +27,7 @@ class HealthController {
 @Module({
   controllers: [
     HealthController,
+    CatalogController,
     MatchingController,
     RequestsController,
     RequestCancellationController,
