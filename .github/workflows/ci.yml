@@ -20,5 +20,7 @@ jobs:
         run: npm install
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
+      - name: Generate initial migration preview
+        run: npm run prisma:init-sql -w @qalahub/db
       - name: Build workspaces
         run: npm run build
