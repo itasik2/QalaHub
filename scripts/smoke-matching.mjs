@@ -1,7 +1,25 @@
+import { createHmac } from 'node:crypto';
+
 const apiBase = process.env.SMOKE_API_URL ?? 'http://127.0.0.1:4000/api/v1';
 const internalToken = process.env.INTERNAL_API_TOKEN ?? 'ci-internal-token';
+const providerSessionSecret =
+  process.env.PROVIDER_SESSION_SECRET ??
+  process.env.PHONE_VERIFICATION_SECRET ??
+  internalToken;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function providerAuthHeaders(providerId) {
+  const payload = {
+    providerId,
+    exp: Math.floor(Date.now() / 1000) + 60 * 60,
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = createHmac('sha256', providerSessionSecret)
+    .update(encodedPayload)
+    .digest('base64url');
+  return { authorization: `Bearer ${encodedPayload}.${signature}` };
+}
 
 async function waitFor(label, fn, { timeoutMs = 15000, intervalMs = 150 } = {}) {
   const deadline = Date.now() + timeoutMs;
@@ -74,6 +92,7 @@ if (secondAttemptBeforeMatch.provider.consecutiveMisses !== 0) {
 
 await jsonFetch(`${apiBase}/provider-dispatch/${firstAttempt.id}/respond`, {
   method: 'POST',
+  headers: providerAuthHeaders(firstAttempt.provider.id),
   body: JSON.stringify({
     response: 'ACCEPTED',
     amountKzt: 10000,
@@ -141,6 +160,7 @@ if (afterTimeout.exceptions?.length !== 0) {
 const providerId = secondAttemptAfterTimeout.provider.id;
 const offline = await jsonFetch(`${apiBase}/providers/${providerId}/availability`, {
   method: 'POST',
+  headers: providerAuthHeaders(providerId),
   body: JSON.stringify({ status: 'OFFLINE' }),
 });
 if (offline.provider.availability !== 'OFFLINE' || offline.provider.availableUntil !== null) {
@@ -149,6 +169,7 @@ if (offline.provider.availability !== 'OFFLINE' || offline.provider.availableUnt
 
 const available = await jsonFetch(`${apiBase}/providers/${providerId}/availability`, {
   method: 'POST',
+  headers: providerAuthHeaders(providerId),
   body: JSON.stringify({ status: 'AVAILABLE', minutes: 30 }),
 });
 if (available.provider.availability !== 'AVAILABLE' || !available.provider.availableUntil) {
@@ -196,7 +217,11 @@ if (confirmed.exceptions?.length !== 0) {
 
 const started = await jsonFetch(
   `${apiBase}/providers/${selectedOffer.providerId}/orders/${selection.order.id}/start`,
-  { method: 'POST', body: '{}' },
+  {
+    method: 'POST',
+    headers: providerAuthHeaders(selectedOffer.providerId),
+    body: '{}',
+  },
 );
 if (started.status !== 'IN_PROGRESS' || started.order.status !== 'IN_PROGRESS') {
   throw new Error(`Order start failed: ${JSON.stringify(started)}`);
@@ -212,7 +237,11 @@ if (!inProgress.events.some((event) => event.type === 'order.started')) {
 
 const completedAction = await jsonFetch(
   `${apiBase}/providers/${selectedOffer.providerId}/orders/${selection.order.id}/complete`,
-  { method: 'POST', body: '{}' },
+  {
+    method: 'POST',
+    headers: providerAuthHeaders(selectedOffer.providerId),
+    body: '{}',
+  },
 );
 if (completedAction.status !== 'COMPLETED' || completedAction.order.status !== 'COMPLETED') {
   throw new Error(`Order completion failed: ${JSON.stringify(completedAction)}`);
@@ -270,6 +299,7 @@ const profiled = await jsonFetch(
   `${apiBase}/providers/${onboarding.providerId}/onboarding/profile`,
   {
     method: 'PUT',
+    headers: providerAuthHeaders(onboarding.providerId),
     body: JSON.stringify({
       citySlug: 'pavlodar',
       latitude: 52.287,
@@ -294,6 +324,7 @@ const onboardedAvailable = await jsonFetch(
   `${apiBase}/providers/${onboarding.providerId}/availability`,
   {
     method: 'POST',
+    headers: providerAuthHeaders(onboarding.providerId),
     body: JSON.stringify({ status: 'AVAILABLE', minutes: 60 }),
   },
 );
