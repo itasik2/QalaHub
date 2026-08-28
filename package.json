@@ -1,0 +1,22 @@
+{
+  "name": "qalahub",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@11",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:generate": "npm run prisma:generate -w @qalahub/db",
+    "db:migrate": "npm run prisma:migrate -w @qalahub/db",
+    "db:studio": "npm run prisma:studio -w @qalahub/db"
+  }
+}
