@@ -37,6 +37,7 @@ jobs:
       API_PORT: 4000
       INTERNAL_API_TOKEN: ci-internal-token
       PHONE_VERIFICATION_SECRET: ci-phone-secret
+      PROVIDER_SESSION_SECRET: ci-provider-session-secret
       PHONE_VERIFICATION_EXPOSE_CODE: true
       SMS_PROVIDER: console
       SUPPLY_HEALTH_TARGET_AVAILABLE: 5
