@@ -186,6 +186,9 @@ if (finalSelectedOffer.provider.activeJobs !== providerJobsBeforeSelection + 1) 
     `Provider activeJobs was not incremented: before=${providerJobsBeforeSelection}, after=${finalSelectedOffer.provider.activeJobs}`,
   );
 }
+if (finalSelectedOffer.provider.availability !== 'BUSY') {
+  throw new Error(`Selected provider must become BUSY, got ${finalSelectedOffer.provider.availability}`);
+}
 if (!confirmed.events.some((event) => event.type === 'offer.selected')) {
   throw new Error('Missing offer.selected event');
 }
@@ -287,7 +290,7 @@ const supplyHealth = await waitFor('supply health metrics', async () => {
 
 const plumbingHealth = supplyHealth.categories.find((item) => item.category.slug === 'plumbing');
 const electricalHealth = supplyHealth.categories.find((item) => item.category.slug === 'electrical');
-if (!plumbingHealth || plumbingHealth.supply.availableNow < 5) {
+if (!plumbingHealth || plumbingHealth.supply.availableNow < 4) {
   throw new Error(`Plumbing supply did not include onboarded provider: ${JSON.stringify(plumbingHealth)}`);
 }
 if (!electricalHealth || !['NEED_PROVIDERS', 'CRITICAL'].includes(electricalHealth.health)) {
@@ -307,6 +310,7 @@ console.log('SMOKE_MATCHING_OK', {
     .length,
   redundantProviderMisses: secondAttemptAfterTimeout.provider.consecutiveMisses,
   availabilitySelfService: available.provider.availability,
+  selectedProviderAvailability: finalSelectedOffer.provider.availability,
   exceptions: confirmed.exceptions.length,
   selectedProvider: confirmed.order.provider.user.name,
   amountKzt: confirmed.order.offer.amountKzt,
