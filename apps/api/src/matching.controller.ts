@@ -1,6 +1,6 @@
 import { Body, Controller, OnModuleDestroy, Post } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import IORedis from 'ioredis';
+import { Redis } from 'ioredis';
 import type { ProviderCandidate } from '@qalahub/shared';
 
 class StartMatchingDto {
@@ -10,7 +10,7 @@ class StartMatchingDto {
 
 @Controller('matching')
 export class MatchingController implements OnModuleDestroy {
-  private readonly connection = new IORedis(
+  private readonly connection = new Redis(
     process.env.REDIS_URL ?? 'redis://localhost:6379',
     { maxRetriesPerRequest: null },
   );
