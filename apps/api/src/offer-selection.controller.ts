@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Controller, Param, Post } from '@nestjs/common';
 import {
+  AvailabilityStatus,
   CandidateStatus,
   DispatchResponse,
   OfferStatus,
@@ -67,7 +68,12 @@ export class OfferSelectionController {
 
       await tx.provider.update({
         where: { id: offer.providerId },
-        data: { activeJobs: { increment: 1 } },
+        data: {
+          activeJobs: { increment: 1 },
+          availability: AvailabilityStatus.BUSY,
+          availableUntil: null,
+          lastAvailabilityChange: now,
+        },
       });
 
       const createdOrder = await tx.order.create({
@@ -97,6 +103,7 @@ export class OfferSelectionController {
             providerId: offer.providerId,
             orderId: createdOrder.id,
             cancelledDispatches: outstandingIds.length,
+            providerAvailability: AvailabilityStatus.BUSY,
           },
         },
       });
