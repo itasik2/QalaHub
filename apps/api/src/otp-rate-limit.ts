@@ -1,6 +1,6 @@
 import { HttpException, ServiceUnavailableException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 
 let redis: Redis | null = null;
 
@@ -14,7 +14,7 @@ function client() {
       maxRetriesPerRequest: 1,
       enableReadyCheck: true,
     });
-    redis.on('error', (error) => {
+    redis.on('error', (error: Error) => {
       console.error('[otp-rate-limit] Redis error', error.message);
     });
   }
