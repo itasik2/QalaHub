@@ -369,3 +369,16 @@ model SupplyNeed {
   @@index([status, priorityScore])
   @@index([cityId, status, priorityScore])
 }
+
+model PhoneVerificationChallenge {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  codeHash  String
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  sentAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+}
