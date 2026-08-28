@@ -17,6 +17,8 @@
     "test": "npm run build -w @qalahub/shared && npm run test -w @qalahub/shared",
     "db:generate": "npm run prisma:generate -w @qalahub/db",
     "db:migrate": "npm run prisma:migrate -w @qalahub/db",
+    "db:deploy": "npm run prisma:deploy -w @qalahub/db",
+    "db:seed": "npm run prisma:seed -w @qalahub/db",
     "db:studio": "npm run prisma:studio -w @qalahub/db"
   },
   "devDependencies": {
