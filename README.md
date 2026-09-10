@@ -36,6 +36,6 @@ No dispatcher should be required for the normal path.
 
 ## Production
 
-The pilot deployment uses Vercel for `apps/web` and Railway for the NestJS API, BullMQ worker, PostgreSQL and Redis.
+The pilot deployment uses Vercel for `apps/web`, Railway for the NestJS API, BullMQ worker and Redis, and Neon for PostgreSQL.
 
 See [`docs/production-deployment.md`](docs/production-deployment.md) for the required deployment order, service commands, environment variables, health check, database migration policy, Mobizon setup and production smoke checklist.
