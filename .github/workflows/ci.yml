@@ -87,6 +87,11 @@ jobs:
           STATUS=$?
 
           if [ "$STATUS" -eq 0 ]; then
+            node scripts/smoke-price-resume.mjs
+            STATUS=$?
+          fi
+
+          if [ "$STATUS" -eq 0 ]; then
             node scripts/smoke-phone-verification.mjs
             STATUS=$?
           fi
