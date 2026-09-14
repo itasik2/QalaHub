@@ -196,7 +196,7 @@ export class RequestsController {
     const pendingOffers = request.offers.filter((offer) => offer.status === OfferStatus.PENDING).length;
     const selectionDeadline = getOfferSelectionDeadline({
       status: request.status,
-      matchedAt: request.matchedAt,
+      firstOfferAt: request.firstOfferAt,
       pendingOffers,
     });
 
