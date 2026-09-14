@@ -1,6 +1,12 @@
 import { BadRequestException, Body, Controller, Get, Headers, Param, Post } from '@nestjs/common';
-import { prisma, RequestUrgency, UserRole } from '@qalahub/db';
+import { OfferStatus, prisma, RequestUrgency, UserRole } from '@qalahub/db';
 import { MatchingQueueService } from './matching-queue.service.js';
+import {
+  expireOfferSelectionIfNeeded,
+  getOfferSelectionDeadline,
+  offerSelectionTimeoutSeconds,
+} from './offer-selection-window.js';
+import { getRecommendedPriceRange } from './pricing.js';
 import { createRequestAccessToken, requireRequestAccess } from './request-access.js';
 import { reconcileSupplyNeedsByCityId } from './supply-health.service.js';
 
@@ -15,11 +21,61 @@ class CreateRequestDto {
   latitude?: number;
   longitude?: number;
   maxDistanceKm?: number;
+  customerPriceKzt?: number;
 }
 
 @Controller('requests')
 export class RequestsController {
   constructor(private readonly matchingQueue: MatchingQueueService) {}
+
+  private loadRequest(id: string) {
+    return prisma.request.findUnique({
+      where: { id },
+      include: {
+        offers: {
+          orderBy: { createdAt: 'asc' as const },
+          include: {
+            provider: {
+              select: {
+                id: true,
+                rating: true,
+                activeJobs: true,
+                user: { select: { name: true } },
+              },
+            },
+          },
+        },
+        dispatchAttempts: {
+          orderBy: [
+            { round: 'asc' as const },
+            { wave: 'asc' as const },
+            { sentAt: 'asc' as const },
+          ],
+          include: {
+            provider: {
+              select: {
+                id: true,
+                consecutiveMisses: true,
+              },
+            },
+          },
+        },
+        order: {
+          include: {
+            offer: true,
+            provider: {
+              select: {
+                id: true,
+                user: { select: { name: true } },
+              },
+            },
+          },
+        },
+        events: { orderBy: { createdAt: 'asc' as const } },
+        exceptions: { orderBy: { createdAt: 'asc' as const } },
+      },
+    });
+  }
 
   @Post()
   async create(@Body() body: CreateRequestDto) {
@@ -30,6 +86,14 @@ export class RequestsController {
     }
     if (!/^\+?[0-9]{10,15}$/.test(customerPhone)) {
       throw new BadRequestException('customerPhone must contain 10 to 15 digits');
+    }
+
+    const customerPriceKzt = body.customerPriceKzt == null ? null : Number(body.customerPriceKzt);
+    if (
+      customerPriceKzt != null &&
+      (!Number.isInteger(customerPriceKzt) || customerPriceKzt < 500 || customerPriceKzt > 100_000_000)
+    ) {
+      throw new BadRequestException('customerPriceKzt must be an integer between 500 and 100000000');
     }
 
     const [customer, city, category] = await Promise.all([
@@ -55,6 +119,12 @@ export class RequestsController {
       throw new BadRequestException('service not found or inactive');
     }
 
+    const recommendedPrice = await getRecommendedPriceRange({
+      cityId: city.id,
+      categoryId: category.id,
+      serviceId: service?.id,
+    });
+
     const access = createRequestAccessToken();
     const request = await prisma.request.create({
       data: {
@@ -68,6 +138,9 @@ export class RequestsController {
         latitude: body.latitude,
         longitude: body.longitude,
         maxDistanceKm: Math.max(1, Math.min(body.maxDistanceKm ?? 10, 50)),
+        customerPriceKzt,
+        recommendedMinPriceKzt: recommendedPrice.minKzt,
+        recommendedMaxPriceKzt: recommendedPrice.maxKzt,
         accessTokenHash: access.hash,
         events: {
           create: {
@@ -76,6 +149,8 @@ export class RequestsController {
               citySlug: city.slug,
               categorySlug: category.slug,
               serviceSlug: service?.slug ?? null,
+              customerPriceKzt,
+              recommendedPrice,
             },
           },
         },
@@ -93,6 +168,13 @@ export class RequestsController {
       accessToken: access.token,
       status: request.status,
       matching: 'QUEUED',
+      customerPriceKzt: request.customerPriceKzt,
+      recommendedPrice: {
+        minKzt: request.recommendedMinPriceKzt,
+        maxKzt: request.recommendedMaxPriceKzt,
+        sampleSize: recommendedPrice.sampleSize,
+        basis: recommendedPrice.basis,
+      },
     };
   }
 
@@ -101,53 +183,28 @@ export class RequestsController {
     @Param('id') id: string,
     @Headers('x-qalahub-request-token') accessToken?: string,
   ) {
-    const request = await prisma.request.findUnique({
-      where: { id },
-      include: {
-        offers: {
-          orderBy: { createdAt: 'asc' },
-          include: {
-            provider: {
-              select: {
-                id: true,
-                rating: true,
-                activeJobs: true,
-                user: { select: { name: true } },
-              },
-            },
-          },
-        },
-        dispatchAttempts: {
-          orderBy: [{ round: 'asc' }, { wave: 'asc' }, { sentAt: 'asc' }],
-          include: {
-            provider: {
-              select: {
-                id: true,
-                consecutiveMisses: true,
-              },
-            },
-          },
-        },
-        order: {
-          include: {
-            offer: true,
-            provider: {
-              select: {
-                id: true,
-                user: { select: { name: true } },
-              },
-            },
-          },
-        },
-        events: { orderBy: { createdAt: 'asc' } },
-        exceptions: { orderBy: { createdAt: 'asc' } },
-      },
-    });
-
+    let request = await this.loadRequest(id);
     if (!request) throw new BadRequestException('request not found');
     requireRequestAccess(request.accessTokenHash, accessToken);
 
+    const expiration = await expireOfferSelectionIfNeeded(id);
+    if (expiration.expired) {
+      request = await this.loadRequest(id);
+      if (!request) throw new BadRequestException('request not found');
+    }
+
+    const pendingOffers = request.offers.filter((offer) => offer.status === OfferStatus.PENDING).length;
+    const selectionDeadline = getOfferSelectionDeadline({
+      status: request.status,
+      matchedAt: request.matchedAt,
+      pendingOffers,
+    });
+
     const { accessTokenHash: _accessTokenHash, ...publicRequest } = request;
-    return publicRequest;
+    return {
+      ...publicRequest,
+      offerSelectionExpiresAt: selectionDeadline,
+      offerSelectionTimeoutSeconds,
+    };
   }
 }

@@ -24,6 +24,11 @@ type RequestState = {
   title: string;
   description?: string | null;
   status: string;
+  customerPriceKzt?: number | null;
+  recommendedMinPriceKzt?: number | null;
+  recommendedMaxPriceKzt?: number | null;
+  offerSelectionExpiresAt?: string | null;
+  offerSelectionTimeoutSeconds?: number;
   offers: Offer[];
   dispatchAttempts: Array<{ id: string; response?: string | null }>;
   order?: {
@@ -59,12 +64,22 @@ function money(value?: number | null) {
   return value == null ? 'Цена по договорённости' : `${new Intl.NumberFormat('ru-KZ').format(value)} ₸`;
 }
 
+function priceRange(request: RequestState) {
+  const min = request.recommendedMinPriceKzt;
+  const max = request.recommendedMaxPriceKzt;
+  if (min != null && max != null) return `${money(min)}–${money(max)}`;
+  if (min != null) return `от ${money(min)}`;
+  if (max != null) return `до ${money(max)}`;
+  return null;
+}
+
 export function RequestStatus({ requestId }: { requestId: string }) {
   const [request, setRequest] = useState<RequestState | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [accessLoaded, setAccessLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('OTHER');
 
   const tokenHeaders = useCallback((): Record<string, string> => {
     return accessToken ? { 'x-qalahub-request-token': accessToken } : {};
@@ -111,6 +126,13 @@ export function RequestStatus({ requestId }: { requestId: string }) {
     () => request?.offers.filter((offer) => offer.status === 'PENDING') ?? [],
     [request],
   );
+  const selectionExpired = useMemo(
+    () =>
+      request?.status === 'OFFERS_RECEIVED' &&
+      pendingOffers.length === 0 &&
+      request.offers.some((offer) => offer.status === 'EXPIRED'),
+    [pendingOffers.length, request],
+  );
 
   async function selectOffer(offerId: string) {
     if (!accessToken) return;
@@ -131,6 +153,54 @@ export function RequestStatus({ requestId }: { requestId: string }) {
       await load();
     } catch (selectError) {
       setError(selectError instanceof Error ? selectError.message : 'Не удалось выбрать исполнителя');
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function rejectOffersAndResume() {
+    if (!accessToken) return;
+    setActionId('reject-all');
+    setError(null);
+    try {
+      const response = await fetch(`${apiBase}/requests/${requestId}/offers/reject-all`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...tokenHeaders(),
+        },
+        body: JSON.stringify({ reason: rejectionReason }),
+      });
+      const text = await response.text();
+      const body = text ? JSON.parse(text) : null;
+      if (!response.ok) throw new Error(body?.message ?? 'Не удалось продолжить поиск');
+      await load();
+    } catch (rejectError) {
+      setError(rejectError instanceof Error ? rejectError.message : 'Не удалось продолжить поиск');
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function resumeMatching() {
+    if (!accessToken) return;
+    setActionId('resume');
+    setError(null);
+    try {
+      const response = await fetch(`${apiBase}/requests/${requestId}/offers/resume`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...tokenHeaders(),
+        },
+        body: '{}',
+      });
+      const text = await response.text();
+      const body = text ? JSON.parse(text) : null;
+      if (!response.ok) throw new Error(body?.message ?? 'Не удалось возобновить поиск');
+      await load();
+    } catch (resumeError) {
+      setError(resumeError instanceof Error ? resumeError.message : 'Не удалось возобновить поиск');
     } finally {
       setActionId(null);
     }
@@ -185,6 +255,7 @@ export function RequestStatus({ requestId }: { requestId: string }) {
   }
 
   const canCancel = !['IN_PROGRESS', 'COMPLETED', 'CANCELLED'].includes(request.status);
+  const recommended = priceRange(request);
 
   return (
     <main className="shell narrowShell">
@@ -197,6 +268,12 @@ export function RequestStatus({ requestId }: { requestId: string }) {
         </div>
         <h1 className="pageTitle">{request.title}</h1>
         {request.description ? <p className="lead smallLead">{request.description}</p> : null}
+        {request.customerPriceKzt != null || recommended ? (
+          <p className="mutedText">
+            {request.customerPriceKzt != null ? `Ваш ориентир: ${money(request.customerPriceKzt)}.` : 'Ваша цена не указана.'}
+            {recommended ? ` Рекомендованный диапазон: ${recommended}.` : ''}
+          </p>
+        ) : null}
 
         <div className="metricRow">
           <div className="metricCard">
@@ -220,6 +297,11 @@ export function RequestStatus({ requestId }: { requestId: string }) {
             <div>
               <div className="eyebrow">Предложения</div>
               <h2>Выберите исполнителя</h2>
+              {request.offerSelectionExpiresAt ? (
+                <p className="mutedText">
+                  Текущий набор предложений действует до {new Date(request.offerSelectionExpiresAt).toLocaleTimeString('ru-KZ', { hour: '2-digit', minute: '2-digit' })}.
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="offerList">
@@ -247,6 +329,38 @@ export function RequestStatus({ requestId }: { requestId: string }) {
               </article>
             ))}
           </div>
+
+          <div className="cancelPanel">
+            <div>
+              <strong>Никто не подходит?</strong>
+              <p className="mutedText">Текущие предложения будут отклонены, а система продолжит со следующей волны и при необходимости расширит зону поиска.</p>
+              <label>
+                <span>Причина</span>
+                <select value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} disabled={actionId !== null}>
+                  <option value="TOO_EXPENSIVE">Слишком дорого</option>
+                  <option value="ETA_TOO_LONG">Слишком долго ждать</option>
+                  <option value="NOT_SUITABLE">Не подходят условия или исполнитель</option>
+                  <option value="NEED_OTHER_SPECIALIST">Нужен другой специалист</option>
+                  <option value="OTHER">Другая причина</option>
+                </select>
+              </label>
+            </div>
+            <button className="secondaryButton" type="button" onClick={() => void rejectOffersAndResume()} disabled={actionId !== null}>
+              {actionId === 'reject-all' ? 'Продолжаем поиск…' : 'Искать другие варианты'}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {selectionExpired ? (
+        <section className="section waitingPanel">
+          <div>
+            <strong>Время выбора истекло</strong>
+            <p>Старые предложения закрыты. Можно продолжить поиск: система перейдёт к следующим исполнителям и при необходимости расширит зону.</p>
+          </div>
+          <button className="primaryButton" type="button" onClick={() => void resumeMatching()} disabled={actionId !== null}>
+            {actionId === 'resume' ? 'Возобновляем…' : 'Продолжить поиск'}
+          </button>
         </section>
       ) : null}
 
@@ -271,7 +385,7 @@ export function RequestStatus({ requestId }: { requestId: string }) {
         </section>
       ) : null}
 
-      {!request.order && pendingOffers.length === 0 && !terminalStatuses.has(request.status) ? (
+      {!request.order && pendingOffers.length === 0 && !selectionExpired && !terminalStatuses.has(request.status) ? (
         <section className="section waitingPanel">
           <div className="spinner" aria-hidden="true" />
           <div>

@@ -219,6 +219,9 @@ model Request {
   latitude                 Float?
   longitude                Float?
   maxDistanceKm            Float          @default(10)
+  customerPriceKzt         Int?
+  recommendedMinPriceKzt   Int?
+  recommendedMaxPriceKzt   Int?
   accessTokenHash          String?
   matchingRound            Int            @default(0)
   matchingWave             Int            @default(0)

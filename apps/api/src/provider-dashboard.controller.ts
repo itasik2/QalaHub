@@ -3,6 +3,27 @@ import { OrderStatus, prisma } from '@qalahub/db';
 import { syncProviderReadiness } from './provider-readiness.js';
 import { requireProviderSession } from './provider-session.js';
 
+function priceContext(input: {
+  description?: string | null;
+  customerPriceKzt?: number | null;
+  recommendedMinPriceKzt?: number | null;
+  recommendedMaxPriceKzt?: number | null;
+}) {
+  const parts: string[] = [];
+  if (input.description) parts.push(input.description);
+  if (input.customerPriceKzt != null) {
+    parts.push(`Ориентир заказчика: ${input.customerPriceKzt} ₸`);
+  }
+  if (input.recommendedMinPriceKzt != null || input.recommendedMaxPriceKzt != null) {
+    const range =
+      input.recommendedMinPriceKzt != null && input.recommendedMaxPriceKzt != null
+        ? `${input.recommendedMinPriceKzt}–${input.recommendedMaxPriceKzt} ₸`
+        : `${input.recommendedMinPriceKzt ?? input.recommendedMaxPriceKzt} ₸`;
+    parts.push(`Рекомендованный диапазон QalaHub: ${range}`);
+  }
+  return parts.join(' · ') || null;
+}
+
 @Controller('providers')
 export class ProviderDashboardController {
   @Get(':providerId/dashboard')
@@ -45,6 +66,9 @@ export class ProviderDashboardController {
               title: true,
               description: true,
               urgency: true,
+              customerPriceKzt: true,
+              recommendedMinPriceKzt: true,
+              recommendedMaxPriceKzt: true,
               category: { select: { slug: true, name: true } },
               service: { select: { slug: true, name: true } },
             },
@@ -68,6 +92,9 @@ export class ProviderDashboardController {
               title: true,
               description: true,
               urgency: true,
+              customerPriceKzt: true,
+              recommendedMinPriceKzt: true,
+              recommendedMaxPriceKzt: true,
             },
           },
           offer: {
@@ -95,13 +122,22 @@ export class ProviderDashboardController {
         request: {
           id: attempt.request.id,
           title: attempt.request.title,
-          description: attempt.request.description,
+          description: priceContext(attempt.request),
           urgency: attempt.request.urgency,
+          customerPriceKzt: attempt.request.customerPriceKzt,
+          recommendedMinPriceKzt: attempt.request.recommendedMinPriceKzt,
+          recommendedMaxPriceKzt: attempt.request.recommendedMaxPriceKzt,
           category: attempt.request.category,
           service: attempt.request.service,
         },
       })),
-      activeOrders,
+      activeOrders: activeOrders.map((order) => ({
+        ...order,
+        request: {
+          ...order.request,
+          description: priceContext(order.request),
+        },
+      })),
       generatedAt: now,
     };
   }

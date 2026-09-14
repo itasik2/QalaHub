@@ -2,10 +2,18 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 
+type PriceRecommendation = {
+  minKzt: number | null;
+  maxKzt: number | null;
+  sampleSize: number;
+  basis: 'PROVIDER_RANGES' | 'INSUFFICIENT_DATA';
+};
+
 type Service = {
   id: string;
   slug: string;
   name: string;
+  recommendedPrice?: PriceRecommendation;
 };
 
 type Category = {
@@ -22,6 +30,23 @@ type CatalogResponse = {
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000/api/v1';
 
+function money(value?: number | null) {
+  return value == null ? null : `${new Intl.NumberFormat('ru-KZ').format(value)} ₸`;
+}
+
+function priceHint(recommendation?: PriceRecommendation) {
+  if (!recommendation || recommendation.basis === 'INSUFFICIENT_DATA') {
+    return 'Рекомендованная цена пока не рассчитана. Можно оставить поле пустым.';
+  }
+  if (recommendation.minKzt != null && recommendation.maxKzt != null) {
+    return `Рекомендованный диапазон: ${money(recommendation.minKzt)}–${money(recommendation.maxKzt)} · по ценам активных исполнителей.`;
+  }
+  const single = recommendation.minKzt ?? recommendation.maxKzt;
+  return single != null
+    ? `Ориентир по рынку: ${money(single)} · по ценам активных исполнителей.`
+    : 'Рекомендованная цена пока не рассчитана. Можно оставить поле пустым.';
+}
+
 export function RequestForm() {
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [categorySlug, setCategorySlug] = useState('');
@@ -30,6 +55,7 @@ export function RequestForm() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [urgency, setUrgency] = useState('TODAY');
+  const [customerPrice, setCustomerPrice] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,6 +89,10 @@ export function RequestForm() {
     () => catalog?.categories.find((category) => category.slug === categorySlug) ?? null,
     [catalog, categorySlug],
   );
+  const selectedService = useMemo(
+    () => selectedCategory?.services.find((service) => service.slug === serviceSlug) ?? null,
+    [selectedCategory, serviceSlug],
+  );
 
   function changeCategory(nextSlug: string) {
     setCategorySlug(nextSlug);
@@ -88,6 +118,7 @@ export function RequestForm() {
           description: description.trim() || undefined,
           urgency,
           maxDistanceKm: 10,
+          customerPriceKzt: customerPrice.trim() ? Number(customerPrice) : undefined,
         }),
       });
 
@@ -184,6 +215,21 @@ export function RequestForm() {
       </label>
 
       <label className="wideField">
+        <span>Ваша цена, ₸ <small className="mutedText">необязательно</small></span>
+        <input
+          value={customerPrice}
+          onChange={(event) => setCustomerPrice(event.target.value)}
+          placeholder="Например: 10000"
+          type="number"
+          inputMode="numeric"
+          min="500"
+          max="100000000"
+          step="500"
+        />
+        <small className="mutedText">{priceHint(selectedService?.recommendedPrice)}</small>
+      </label>
+
+      <label className="wideField">
         <span>Подробности</span>
         <textarea
           value={description}
@@ -199,7 +245,7 @@ export function RequestForm() {
         <button className="primaryButton" type="submit" disabled={loading || !catalog}>
           {loading ? 'Запускаем поиск…' : 'Найти исполнителя'}
         </button>
-        <small>Заявка сразу поступит доступным исполнителям. Ручное подтверждение администратора не требуется.</small>
+        <small>Ваша цена — ориентир, а не жёсткий потолок. Исполнитель сможет предложить свою стоимость.</small>
       </div>
     </form>
   );

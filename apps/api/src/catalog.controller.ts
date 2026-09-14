@@ -1,5 +1,6 @@
 import { BadRequestException, Controller, Get, Param } from '@nestjs/common';
 import { prisma } from '@qalahub/db';
+import { getRecommendedPriceRange } from './pricing.js';
 
 @Controller('catalog')
 export class CatalogController {
@@ -20,16 +21,29 @@ export class CatalogController {
       },
     });
 
-    return {
-      ok: true,
-      city: { id: city.id, slug: city.slug, name: city.name },
-      categories: categories.map((category) => ({
+    const withPricing = await Promise.all(
+      categories.map(async (category) => ({
         id: category.id,
         slug: category.slug,
         name: category.name,
         requestMode: category.requestMode,
-        services: category.services,
+        services: await Promise.all(
+          category.services.map(async (service) => ({
+            ...service,
+            recommendedPrice: await getRecommendedPriceRange({
+              cityId: city.id,
+              categoryId: category.id,
+              serviceId: service.id,
+            }),
+          })),
+        ),
       })),
+    );
+
+    return {
+      ok: true,
+      city: { id: city.id, slug: city.slug, name: city.name },
+      categories: withPricing,
     };
   }
 }
