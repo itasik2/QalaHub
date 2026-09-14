@@ -49,6 +49,8 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Audit production dependencies
+        id: production_audit
+        continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
       - name: Build workspaces
         run: npm run build
@@ -99,3 +101,8 @@ jobs:
           kill "$API_PID" "$WORKER_PID" 2>/dev/null || true
           wait "$API_PID" "$WORKER_PID" 2>/dev/null || true
           exit "$STATUS"
+      - name: Enforce production dependency audit
+        if: always() && steps.production_audit.outcome == 'failure'
+        run: |
+          echo "Production dependency audit failed. Build and smoke results above remain valid, but CI stays red until the dependency advisories are resolved safely."
+          exit 1
