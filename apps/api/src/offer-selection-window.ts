@@ -9,23 +9,23 @@ const offerSelectionTimeoutMs = offerSelectionTimeoutSeconds * 1000;
 
 export function getOfferSelectionDeadline(input: {
   status: RequestStatus;
-  matchedAt?: Date | null;
+  firstOfferAt?: Date | null;
   pendingOffers: number;
 }) {
   if (
     input.status !== RequestStatus.OFFERS_RECEIVED ||
-    !input.matchedAt ||
+    !input.firstOfferAt ||
     input.pendingOffers <= 0
   ) {
     return null;
   }
-  return new Date(input.matchedAt.getTime() + offerSelectionTimeoutMs);
+  return new Date(input.firstOfferAt.getTime() + offerSelectionTimeoutMs);
 }
 
 export async function expireOfferSelectionIfNeeded(requestId: string) {
   const request = await prisma.request.findUnique({
     where: { id: requestId },
-    select: { status: true, matchedAt: true, order: { select: { id: true } } },
+    select: { status: true, firstOfferAt: true, order: { select: { id: true } } },
   });
   if (!request || request.order) return { expired: false, deadline: null };
 
@@ -34,7 +34,7 @@ export async function expireOfferSelectionIfNeeded(requestId: string) {
   });
   const deadline = getOfferSelectionDeadline({
     status: request.status,
-    matchedAt: request.matchedAt,
+    firstOfferAt: request.firstOfferAt,
     pendingOffers,
   });
   if (!deadline || deadline.getTime() > Date.now()) {
